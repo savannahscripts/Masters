@@ -16,3 +16,15 @@ What I do: Clean species names, removing messy entries, NA values etc, remove fr
 3. FM_LOC_CLEAN.R
 
 What I do: Clean location names, Rewmove empty rows, Check years and find missing entry calues, clean method names, remove plankton methods (excluding larval data), remove NA columns
+
+4. FM_METHODS.R
+
+What I do: Investigate count metrics, remove records not classified to species level, remove methods with "unknown" count metric, investigate spread of count metric within methods and visualise, map geographic distribution of map
+
+5. FM_MPAS_SPP.R
+
+Species richness per site, unprotected sites, statistical significance
+
+6. FM_GRID.R
+
+Spatially grid
