@@ -14,7 +14,7 @@ library(ggrepel)
 library(terra)
 #-------------------------------------------------------------------------------
 # BASE SPATIAL LAYERS
-#-------------------------------------------------------------------------------
+#------------------------------------------------------------------------------
 # South Africa (context)
 sa <- ne_countries(country = "South Africa", returnclass = "sf") %>%
   st_transform(4326)
@@ -50,6 +50,9 @@ mpas <- st_read(
   st_transform(4326)
 
 mpas_sa <- st_intersection(mpas, eez_sa)
+
+mpas_sa <- mpas_sa %>%
+  dplyr::filter(TYPE == "Marine Protected Area")
 #-------------------------------------------------------------------------------
 # BIOREGIONS (9 REGIONS)
 #-------------------------------------------------------------------------------
@@ -112,6 +115,7 @@ mpas_sa     <- st_transform(mpas_sa, 4326)
 dat_sf <- st_join(dat_sf, eez_sa, left = TRUE)
 dat_sf <- st_join(dat_sf, bioregions_9[, "region9"])
 dat_sf <- st_join(dat_sf, grid_sa[, "grid_id"])
+dat_sf <- st_join(dat_sf, mpas_sa[, "CUR_NME"], left = TRUE)
 #-------------------------------------------------------------------------------
 # ADD DEPTH
 #-------------------------------------------------------------------------------
@@ -121,10 +125,50 @@ dat_sf$depth <- depth_vals[,1]
 # Keep marine only
 dat_sf <- dat_sf %>%
   filter(!is.na(depth), depth <= 0)
+
+#add in mpa
+dat_sf <- dat_sf %>%
+  dplyr::mutate(
+    in_mpa = !is.na(CUR_NME)
+  )
+
+colnames(dat_sf)
+unique(dat_sf$method)
 #-------------------------------------------------------------------------------
 # FINAL DATASET
 #-------------------------------------------------------------------------------
-final_dat <- dat_sf
+final_dat <- dat_sf %>%
+  dplyr::select(
+    source,
+    species,
+    genus,
+    family,
+    order,
+    method,
+    datatype,
+    taxonomic_resolution,
+    year,
+    coast,
+    region9,
+    grid_id,
+    lon_orig,
+    lat_orig,
+    depth,
+    in_mpa,
+    geometry
+  )
+
+final_dat <- final_dat %>%
+  dplyr::rename(
+    longitude = lon_orig,
+    latitude  = lat_orig
+  )
+
+readr::write_csv(sf::st_drop_geometry(final_dat),
+  "final_dat.csv")
+readr::write_csv(dat_species, "dat_species.csv")
+readr::write_csv(dat_all, "dat_raw.csv")
+
 #-------------------------------------------------------------------------------
 # CHECKS
 #-------------------------------------------------------------------------------
@@ -132,6 +176,7 @@ summary(final_dat$depth)
 table(final_dat$region9)
 table(is.na(final_dat$grid_id))
 table(final_dat$in_mpa)
+
 #-------------------------------------------------------------------------------
 #PLOTS
 #-------------------------------------------------------------------------------
@@ -144,7 +189,7 @@ par(
   cex.main = 1.3    # main title
 )
 
-p_depth <- plot(depth_lowres)
+p_depth <- plot(depth)
 agg_png("p_depth.png", width = 8, height = 6, units = "in", res = 600)
 par(family = "serif")
 plot(depth)
