@@ -29,8 +29,6 @@ grid_time <- final_dat %>%
     .groups = "drop"
   )
 
-names(final_dat)
-
 grid_time_map <- grid_sa %>%
   left_join(grid_time, by = "grid_id") %>%
   mutate(
@@ -59,6 +57,14 @@ final_dat %>%
 grid_coast_cov <- grid_coast_cov %>%
   left_join(grid_time, by = "grid_id")
 
+grid_coast_cov <- grid_coast_cov %>%
+  left_join(
+    grid_cov %>%
+      st_drop_geometry() %>%
+      select(grid_id, depth_zone),
+    by = "grid_id"
+  )
+
 time_summary <- grid_coast_cov %>%
   st_drop_geometry() %>%
   group_by(depth_zone) %>%
@@ -68,10 +74,29 @@ time_summary <- grid_coast_cov %>%
     .groups = "drop"
   )
 
-#depth_zone mean_years_sampled median_years_sampled
+time_summary 
+
+#depth_zone.    mean_years_sampled median_years_sampled
 #Inshore                 29.0                    30
-# Offshore                 9.07                    3
+# Offshore                 9.09                    3
 # NA                      33                      33
+
+time_summary_coast <- grid_coast_cov %>%
+  st_drop_geometry() %>%
+  filter(!is.na(coast)) %>%   # 🔥 drop any weird NA grids
+  group_by(coast) %>%
+  summarise(
+    mean_years_sampled   = mean(n_years_sampled, na.rm = TRUE),
+    median_years_sampled = median(n_years_sampled, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+time_summary_coast
+
+#  coast mean_years_sampled median_years_sampled
+#east               8.31                    3
+#south              24.5                    28
+# west               14.6                     5
 
 
 grid_time_map <- grid_time_map %>%
@@ -121,31 +146,94 @@ p_time <- ggplot() +
 
 p_time
 
-ggsave("FIG_temporal_intensity.png", p_time,
+ggsave("figure10_temporal_intensity.png", p_time,
        width = 8, height = 6, dpi = 600)
 
+#-----------------------------------
+# Prepare data
+#-----------------------------------
 
 source_time <- final_dat %>%
+  st_drop_geometry() %>%
   filter(!is.na(year)) %>%
-  count(year, source)
+  mutate(
+    source = case_when(
+      source == "CAPFISH"   ~ "CapMarine (O)",
+      source == "INAT"      ~ "iNaturalist (S)",
+      source == "MW_TRAWL"  ~ "MW Trawl (O)",
+      source == "MUSEUM"    ~ "Museum (S)",
+      source == "LITERATURE"~ "Literature (S,C,O)",
+      source == "DEM_TRAWL" ~ "Demersal trawl (S)",
+      source == "BRUV"      ~ "BRUV (S)",
+      source == "LINEFISH"  ~ "Angling (C,O)",
+      TRUE ~ source
+    ),
+    year_bin = floor(year / 2) * 2
+  ) %>%
+  count(year_bin, source)
 
-p_source_time <- ggplot(source_time, aes(x = year, y = n, fill = source)) +
-  geom_col() +
-  
-  scale_fill_viridis_d(option = "C") +
-  
+source_time$source <- factor(
+  source_time$source,
+  levels = c(
+    "Literature (S,C,O)",
+    "Museum (S)",
+    "MW Trawl (O)",
+    "CapMarine (O)",
+    "Demersal trawl (S)",
+    "Angling (C,O)",
+    "iNaturalist (S)",
+    "BRUV (S)"
+  ) )
+
+unique(final_dat$source)
+
+final_dat %>%
+  filter(source == "BRUV") %>%
+  summarise(n = n(), n_year = sum(!is.na(year)))
+
+#-----------------------------------
+# Define colour palette
+#-----------------------------------
+source_cols <- c(
+  "Literature (S,C,O)"   = "grey80",
+  "Museum (S)"           = "grey50",
+  "MW Trawl (O)"         = "grey30",
+  "CapMarine (O)"        = "beige",
+  "Demersal trawl (S)"   = "#6baed6",
+  "Angling (C,O)"        = "lightblue",
+  "iNaturalist (S)"      = "white",   
+  "BRUV (S)"             = "royalblue"    
+)
+
+p_source_time <- ggplot(source_time, aes(x = year_bin, y = n, fill = source)) +
+  geom_col(
+    position = "stack",
+    width = 1.8,
+    colour = "black"
+  ) +
+  scale_y_sqrt(labels = scales::comma) +
+  scale_fill_manual(values = source_cols) +  
+  scale_x_continuous(
+    breaks = seq(1800, 2030, by = 20),
+    expand = c(0, 0)
+  ) +
   theme_classic(base_family = "serif") +
   theme(
-    legend.position = "right"
+    legend.position = "right",
+    axis.text.x = element_text(angle = 45, hjust = 1)
   ) +
-  
   labs(
     title = "Temporal distribution of records by data source",
     x = "Year",
-    y = "Number of records"
+    y = "Number of records (square-root scale)",
+    fill = "Source"
   )
 
-p_source_time #change scale
+p_source_time
+
+
+ggsave("figure11_temporal_dist.png", p_source_time,
+       width = 8, height = 6, dpi = 600)
 
 time_intensity <- final_dat %>%
   filter(!is.na(year)) %>%
@@ -153,9 +241,7 @@ time_intensity <- final_dat %>%
 
 p_time_int <- ggplot(time_intensity, aes(x = year, y = n)) +
   geom_line(linewidth = 0.8) +
-  
   theme_classic(base_family = "serif") +
-  
   labs(
     title = "Sampling intensity over time",
     x = "Year",
