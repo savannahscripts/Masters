@@ -239,8 +239,7 @@ bruv_std <- bruv_dat %>%
     coast = tolower(coast),
     method   = "BRUV survey",
     datatype = "S",
-    order    = CorrectedOrder,
-    year     = NA_integer_   
+    order    = CorrectedOrder
   ) %>%
   select(source, species, genus, family, method, datatype,
          taxonomic_resolution, year, latitude, longitude, coast)
@@ -594,3 +593,4 @@ dat_species <- dat_all %>%
 known_species <- dat_species %>%
   distinct(order, family, genus, species) %>%
   arrange(order, family, genus, species)
+
