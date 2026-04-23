@@ -228,9 +228,6 @@ source_stats <- source_grid_sf %>%
     .groups = "drop"
   ) %>%
   dplyr::arrange(desc(pct_eez))
-
-source_stats
-
 #-------------------------------------------------------------------------------
 # COVERAGE + INTENSITY (FOR MAPS / FIGURES)
 #-------------------------------------------------------------------------------
@@ -521,7 +518,7 @@ source_mpa
 
 mpa_years <- mpas_sa %>%
   select(
-    mpa_name = ORIG_NME,        
+    mpa_name = CUR_NME,        
     declaration_year = DECL_YEAR
   )
 
@@ -546,10 +543,13 @@ mpa_temporal <- dat_sf_mpa %>%
   )
 
 mpa_temporal
+
+#WITH ORIGINAL NAME
 #  total_mpa_records    post_decl_records    pct_post_decl   
 #  51075                 26344               51.6 
-
-#for each mpa, table with decl year, n records, species n, % records post decl.
+#WITH CURRENTNAME
+#. 65825                 40445               61.4
+#for each mpa, table with decl year, n r ecords, species n, % records post decl.
 dat_sf_mpa <- dat_sf_mpa %>%
   filter(
     !is.na(declaration_year),
