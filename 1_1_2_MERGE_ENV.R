@@ -235,9 +235,23 @@ readr::write_csv(dat_all, "dat_raw.csv")
 # CHECKS
 #-------------------------------------------------------------------------------
 summary(final_dat$depth)
+#Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+#0.0   135.9   322.6   926.3  1429.8  5270.3 
 table(final_dat$region9)
+#Agulhas          Atlantic Offshore 
+#262209                     150483 
+#Delagoa      Indo-Pacific Offshore 
+#13116                      18318 
+#Namaqua                      Natal 
+#104785                      13162 
+#South-west Indian Offshore         South-Western Cape 
+#321453                     220888 
+#West Indian Offshore 
+#1891 
 table(is.na(final_dat$grid_id))
-table(final_dat$in_mpa)
+#  FALSE 
+#1106305
+
 
 #-------------------------------------------------------------------------------
 #PLOTS
