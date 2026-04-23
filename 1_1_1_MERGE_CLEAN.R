@@ -146,6 +146,10 @@ lit_dat <- lit_dat %>%
   )
 
 #lit
+
+colnames(lit_dat)
+
+unique(lit_dat$method)
 lit_std <- lit_dat %>%
   mutate(
     source   = "LITERATURE",

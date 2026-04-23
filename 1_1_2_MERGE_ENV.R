@@ -125,19 +125,16 @@ dat_sf$depth <- depth_vals[,1]
 # Keep marine only
 dat_sf <- dat_sf %>%
   filter(!is.na(depth), depth <= 0)
-
 #add in mpa
 dat_sf <- dat_sf %>%
   dplyr::mutate(
     in_mpa = !is.na(CUR_NME)
   )
-
-colnames(dat_sf)
-unique(dat_sf$method)
 #-------------------------------------------------------------------------------
 # FINAL DATASET
 #-------------------------------------------------------------------------------
 final_dat <- dat_sf %>%
+  # keep only required columns
   dplyr::select(
     source,
     species,
@@ -156,16 +153,112 @@ final_dat <- dat_sf %>%
     depth,
     in_mpa,
     geometry
-  )
-
-final_dat <- final_dat %>%
+  ) %>%
+  # rename coordinates
   dplyr::rename(
     longitude = lon_orig,
     latitude  = lat_orig
+  ) %>%
+  # remove invalid spatial records
+  dplyr::filter(
+    !is.na(grid_id),
+    !is.na(region9)
+  ) %>%
+  # clean variables
+  dplyr::mutate(
+    depth = abs(depth),                 # convert depth to positive
+    grid_id = as.integer(grid_id),
+    # define depth zone
+    depth_zone = ifelse(depth > 200, "Offshore", "Inshore")
   )
 
-readr::write_csv(sf::st_drop_geometry(final_dat),
-  "final_dat.csv")
+#LASTLY CREATE GEAR_GROUPED COLUMN
+
+final_dat %>%
+  sf::st_drop_geometry() %>%
+  dplyr::count(source, method, sort = TRUE) 
+
+
+#    SOURCE                Method                n.           Gear Specific                        Gear grouped
+#    DEM_TRAWL             Demersal trawl        100571       Demersal trawl offshore and inshoren   Bottom Trawl
+#    LINEFISH              LINE                  783663       Shore and boat angling                 Angling
+#    LINEFISH              POLE                  33320        Pole                                  Angling
+#    LINEFISH              SHORTHAND_ROD         52           Shorthand rod                         Angling
+#    LINEFISH              SPEAR                 49           Spear                             Spear
+#    LINEFISH              SHORT_SPEAR            6           Spear                                 Spear
+#    BRUV                  BRUV survey           20164        BRUV                                    UVC/Visual
+#    MUSEUM                PRESERVED_SPECIMEN    19173        Specimen (No gear)                    NA
+#    CAPFISH               SAHLLA                18125        Longline                             longline
+#    CAPFISH               SECIFA                16782        Inshore demersal trawl                Bottom Trawl
+#    CAPFISH               SAPFIA                16518        Purse seine (small pelagic)        Seine
+#    CAPFISH               SADSTIA               75479        Offshore demersal trawl             Bottom Trawl
+#    MW_TRAWL              Midwater trawl        13459        Midwater trawl                     Midwater Trawl
+#    INAT                  HUMAN_OBSERVATION     6387         Citizen science                   UVC/Visual
+#    LITERATURE            UVC                    940        UVC                                     UVC/Visual
+#    LITERATURE            ShoreAngling           326         Shore angling                           Angling  
+#    LITERATURE            BRUV                    261        BRUV reef                                   UVC/Visual
+#    LITERATURE            GillNet                229         Gill net estuarine                    Gill net
+#    LITERATURE            PlanktonNet            227         Plankton net surface and deep       Plankton net
+#    LITERATURE            SeineNet             206           Beach and estuarine seine net         Seine
+#    LITERATURE            BoatAngling           136          Boat angling                        Angling 
+#    LITERATURE            Chemical             118           Chemical                          Chemical
+#    LITERATURE            Trawl                38            Trawl mixed                       Trawl
+#    LITERATURE            Records             33             No gear                         NA
+#    LITERATURE            Mixed               28             No gear                          NA
+#    LITERATURE            Angling              9             Shore and boat angling                         Angling           
+#    LITERATURE            BeamTrawl              6           Trawl Mixed estuarine                         Trawl
+
+gear_lookup <- tibble::tribble(
+  ~source, ~method, ~gear_specific, ~gear_grouped,
+  
+  # DEMERSAL TRAWL
+  "DEM_TRAWL", "Demersal trawl", "Demersal trawl (offshore & inshore)", "Bottom trawl",
+  
+  # LINEFISH
+  "LINEFISH", "LINE", "Shore and boat angling", "Angling",
+  "LINEFISH", "POLE", "Pole", "Angling",
+  "LINEFISH", "SHORTHAND_ROD", "Shorthand rod", "Angling",
+  "LINEFISH", "SPEAR", "Spear", "Spear",
+  "LINEFISH", "SHORT_SPEAR", "Spear", "Spear",
+  
+  # BRUV
+  "BRUV", "BRUV survey", "BRUV", "UVC/Visual",
+  
+  # MUSEUM
+  "MUSEUM", "PRESERVED_SPECIMEN", "Specimen (no gear)", NA_character_,
+  
+  # CAPFISH
+  "CAPFISH", "SAHLLA", "Longline", "Longline",
+  "CAPFISH", "SECIFA", "Inshore demersal trawl", "Bottom trawl",
+  "CAPFISH", "SAPFIA", "Purse seine (small pelagic)", "Seine",
+  "CAPFISH", "SADSTIA", "Offshore demersal trawl", "Bottom trawl",
+  
+  # MIDWATER
+  "MW_TRAWL", "Midwater trawl", "Midwater trawl", "Midwater trawl",
+  
+  # INAT
+  "INAT", "HUMAN_OBSERVATION", "Citizen science", "UVC/Visual",
+  
+  # LITERATURE
+  "LITERATURE", "UVC", "UVC", "UVC/Visual",
+  "LITERATURE", "ShoreAngling", "Shore angling", "Angling",
+  "LITERATURE", "BRUV", "BRUV reef", "UVC/Visual",
+  "LITERATURE", "GillNet", "Gill net (estuarine)", "Gill net",
+  "LITERATURE", "PlanktonNet", "Plankton net (surface & deep)", "Plankton net",
+  "LITERATURE", "SeineNet", "Beach/estuarine seine", "Seine",
+  "LITERATURE", "BoatAngling", "Boat angling", "Angling",
+  "LITERATURE", "Chemical", "Chemical", "Chemical",
+  "LITERATURE", "Trawl", "Trawl (mixed)", "Trawl",
+  "LITERATURE", "Records", "No gear", NA_character_,
+  "LITERATURE", "Mixed", "No gear", NA_character_,
+  "LITERATURE", "Angling", "Shore and boat angling", "Angling",
+  "LITERATURE", "BeamTrawl", "Trawl (estuarine)", "Trawl"
+)
+
+final_dat <- final_dat %>%
+  dplyr::left_join(gear_lookup, by = c("source", "method"))
+
+readr::write_csv(sf::st_drop_geometry(final_dat),"final_dat.csv")
 readr::write_csv(dat_species, "dat_species.csv")
 readr::write_csv(dat_all, "dat_raw.csv")
 
