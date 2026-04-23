@@ -1,8 +1,8 @@
-# ______________________________________________________________________
-#SPATIAL COVERAGE
-# ______________________________________________________________________
 
-#follow on from 1_1_3_MERGE_ENV
+#-------------------------------------------------------------------------------
+#SPATIAL COVERAGE
+#-------------------------------------------------------------------------------
+#follow on from 1_1_2_MERGE_ENV after final_dat was written 
 install.packages(c("ggplot2", "sf", "rnaturalearth", "rnaturalearthdata", "viridis"))
 ##load libraries
 library(readxl)
@@ -25,10 +25,16 @@ library(janitor)
 getwd()
 setwd("/Users/savannahanderson/Desktop/wd/masters")
 #-------------------------------------------------------------------------------
-final_dat <- final_dat %>%
-  mutate(
-    depth_zone = ifelse(depth <= -200, "Offshore", "Inshore"))
+#read in final_dat
+final_dat <- readr::read_csv("final_dat.csv")
 #-------------------------------------------------------------------------------
+#recreate geometry
+final_dat <- final_dat %>%
+  sf::st_as_sf(
+    coords = c("longitude", "latitude"),
+    crs = 4326,
+    remove = FALSE
+  )
 
 #-------------------------------------------------------------------------------
 # source specific coverage (faceted plot) and numbers
@@ -58,10 +64,10 @@ target_crs <- 32735
 
 source_area <- source_grid_sf %>%
   st_transform(target_crs) %>%
-  mutate(cell_area = as.numeric(st_area(geometry))) %>%
+  mutate(cell_area = as.numeric(sf::st_area(.))) %>%
   group_by(source) %>%
   summarise(
-    area_sampled = sum(cell_area[sampled]),
+    area_sampled = sum(cell_area * sampled),
     total_area   = sum(cell_area),
     pct_coverage = 100 * area_sampled / total_area,
     n_cells_sampled = sum(sampled),
@@ -71,131 +77,200 @@ source_area <- source_grid_sf %>%
 
 source_area
 
-target_crs <- 32735
-
 sa_proj  <- st_transform(sa, target_crs)
 eez_proj <- st_transform(eez_sa, target_crs)
 grid_proj <- st_transform(source_grid_sf, target_crs)
 
+plot_dat <- final_dat %>%
+  dplyr::mutate(
+    source_plot = dplyr::case_when(
+      source == "CAPFISH" ~ "CapMarine (O)",
+      source == "INAT" ~ "iNaturalist (S)",
+      source == "MW_TRAWL" ~ "MW Trawl (O)",
+      source == "MUSEUM" ~ "Museum (S)",
+      source == "LITERATURE" ~ "Literature (S,C,O)",
+      source == "DEM_TRAWL" ~ "Demersal trawl (S)",
+      source == "BRUV" ~ "BRUV (S)",
+      source == "LINEFISH" ~ "Angling (C,O)",
+      TRUE ~ source
+    )
+  )
 
 p_source_points <- ggplot() +
-  geom_sf(data = sa, fill = "grey90", colour = "grey40", linewidth = 0.2) +
-  geom_sf(data = eez_sa, fill = NA, colour = "black", linewidth = 0.4) +
+  geom_sf(data = sa, fill = "grey92", colour = "grey50", linewidth = 0.2) +
   geom_sf(
-    data = final_dat,
-    colour = "navyblue",
-    size = 0.5,
-    alpha = 0.2
+    data = plot_dat,
+    colour = "#1f3b73",
+    size = 0.2,
+    alpha = 0.3
   ) +
   coord_sf(
     xlim = c(10, 36),
     ylim = c(-40, -25),
     expand = FALSE
   ) +
-  facet_wrap(~source, ncol = 2) +
-  labs(x = "Longitude", y = "Latitude") +
+  facet_wrap(~source_plot, ncol = 2, scales = "fixed") +
+  labs(
+    x = "Longitude",
+    y = "Latitude"
+  ) +
   theme_classic(base_family = "serif", base_size = 10) +
   theme(
-    strip.text = element_text(size = 10, face = "bold"),
+    strip.background = element_blank(), 
+    strip.text = element_text(size = 9, face = "bold"),
+    panel.spacing = unit(1, "lines"),
+    panel.border = element_rect(colour = "black", fill = NA, linewidth = 0.4),
+    axis.text = element_text(size = 8),
+    axis.title = element_text(size = 9),
+    axis.line = element_line(colour = "black"),
     legend.position = "none"
   )
 
 p_source_points
 
-ggsave
-#-------------------------------------------------------------------------------
-#-----total sampling coverage of eez grid (percentage) including % offshore (source specfifc for table 4)
-#-------------------------------------------------------------------------------
-coverage <- final_dat %>%
-  group_by(grid_id) %>%
-  summarise(
-    sampled = TRUE,
-    .groups = "drop"
-  ) %>%
-  st_drop_geometry()
+ggsave(
+  filename = "figure7_source_coverage_points.png",
+  plot = p_source_points,
+  width = 8,
+  height = 12,
+  units = "in",
+  dpi = 300
+)
 
-grid_cov <- grid_sa %>%
-  left_join(coverage, by = "grid_id") %>%
-  mutate(sampled = replace_na(sampled, FALSE))
-
-coords <- st_coordinates(st_centroid(grid_sa))
+#-------------------------------------------------------------------------------
+# GRID-LEVEL SAMPLING + DEPTH (FAST + CONSISTENT)
+#-------------------------------------------------------------------------------
+#total sampling coverage of eez grid (%) including % offshore (by source)
+#-------------------------------------------------------------------------------
+#-------------------------------------------------------------------------------
+# GRID-LEVEL SAMPLING + DEPTH (FULL EEZ GRID)
+#-------------------------------------------------------------------------------
+# Extract depth for ALL grid cells (NOT from final_dat)
+coords <- sf::st_coordinates(sf::st_centroid(grid_sa))
 depth_vals <- terra::extract(depth, coords)
 
-grid_cov$depth <- depth_vals[,1]
-
-# Depth zones
-grid_cov <- grid_cov %>%
-  mutate(
-    depth_zone = case_when(
-      is.na(depth) ~ NA_character_,
-      depth >= -200 ~ "Inshore",
-      depth < -200 ~ "Offshore"
-    )
+grid_cov <- grid_sa %>%
+  dplyr::mutate(
+    depth = depth_vals[,1],
+    depth_zone = ifelse(depth < -200, "Offshore", "Inshore"),  # use raster-derived depth
+    sampled = grid_id %in% final_dat$grid_id                   # overlay observations
   )
 
-target_crs <- 32735
+#-------------------------------------------------------------------------------
+# AREA CALCULATIONS
+#-------------------------------------------------------------------------------
+grid_proj <- grid_cov %>%
+  sf::st_transform(target_crs) %>%
+  dplyr::mutate(
+    cell_area = as.numeric(sf::st_area(.))
+  )
 
-grid_proj <- st_transform(grid_cov, target_crs)
-eez_proj  <- st_transform(eez_sa, target_crs)
+eez_proj <- sf::st_transform(eez_sa, target_crs)
 
-grid_proj <- grid_proj %>%
-  mutate(cell_area = as.numeric(st_area(geometry)))
+eez_area <- as.numeric(sf::st_area(sf::st_union(eez_proj)))
 
-eez_area <- as.numeric(st_area(st_union(eez_proj)))
+#-------------------------------------------------------------------------------
+# COVERAGE METRICS (EEZ-WIDE)
+#-------------------------------------------------------------------------------
 
+# Total EEZ coverage
 pct_eez_covered <- 100 * sum(
   grid_proj$cell_area[grid_proj$sampled], na.rm = TRUE
 ) / eez_area
 
+# Offshore coverage (FULL offshore domain)
 pct_offshore_covered <- grid_proj %>%
-  filter(depth_zone == "Offshore") %>%
-  summarise(
+  dplyr::filter(depth_zone == "Offshore") %>%
+  dplyr::summarise(
     pct = 100 * sum(cell_area[sampled], na.rm = TRUE) /
       sum(cell_area, na.rm = TRUE)
   ) %>%
-  pull(pct)
+  dplyr::pull(pct)
 
-# Add depth_zone to source grid
+pct_inshore_covered <- grid_proj %>%
+  dplyr::filter(depth_zone == "Inshore") %>%
+  dplyr::summarise(
+    pct = 100 * sum(cell_area[sampled], na.rm = TRUE) /
+      sum(cell_area, na.rm = TRUE)
+  ) %>%
+  dplyr::pull(pct)
+
+#-------------------------------------------------------------------------------
+# SOURCE-SPECIFIC ANALYSIS (FULL EEZ)
+#-------------------------------------------------------------------------------
+
+# Add depth_zone from FULL grid (not observation-derived)
 source_grid_sf <- source_grid_sf %>%
-  left_join(
+  dplyr::left_join(
     grid_cov %>%
-      st_drop_geometry() %>%
-      select(grid_id, depth_zone),
+      sf::st_drop_geometry() %>%
+      dplyr::select(grid_id, depth_zone),
     by = "grid_id"
   )
 
-source_grid_sf <- source_grid_sf %>%
-  mutate(
-    depth_zone = coalesce(depth_zone.y, depth_zone.x)
-  ) %>%
-  select(-depth_zone.x, -depth_zone.y)
-
+# Source-specific coverage
 source_stats <- source_grid_sf %>%
-  st_transform(target_crs) %>%
-  mutate(
-    cell_area = as.numeric(st_area(geometry)),
-    offshore = depth_zone == "Offshore",
-    sampled_offshore = sampled & offshore
+  sf::st_transform(target_crs) %>%
+  dplyr::mutate(
+    cell_area = as.numeric(sf::st_area(.)),
+    offshore = depth_zone == "Offshore"
   ) %>%
-  group_by(source) %>%
-  summarise(
+  dplyr::group_by(source) %>%
+  dplyr::summarise(
     pct_eez = 100 * sum(cell_area[sampled], na.rm = TRUE) / eez_area,
     
     pct_offshore = 100 *
-      sum(cell_area[sampled_offshore], na.rm = TRUE) /
+      sum(cell_area[sampled & offshore], na.rm = TRUE) /
       sum(cell_area[offshore], na.rm = TRUE),
     
     n_cells_sampled = sum(sampled, na.rm = TRUE),
+    
     .groups = "drop"
   ) %>%
-  arrange(desc(pct_eez))
+  dplyr::arrange(desc(pct_eez))
 
-pct_eez_covered #66.8991
-pct_offshore_covered #61.27108
 source_stats
 
+#-------------------------------------------------------------------------------
+# COVERAGE + INTENSITY (FOR MAPS / FIGURES)
+#-------------------------------------------------------------------------------
+
+coverage_intensity <- final_dat %>%
+  sf::st_drop_geometry() %>%
+  dplyr::group_by(grid_id) %>%
+  dplyr::summarise(
+    sampled   = TRUE,
+    n_records = n(),
+    n_species = dplyr::n_distinct(species),
+    .groups = "drop"
+  )
+
+grid_plot <- grid_sa %>%
+  dplyr::left_join(coverage_intensity, by = "grid_id") %>%
+  dplyr::mutate(
+    sampled   = tidyr::replace_na(sampled, FALSE),
+    n_records = tidyr::replace_na(n_records, 0L),
+    n_species = tidyr::replace_na(n_species, 0L)
+  )
+
+#-------------------------------------------------------------------------------
+# SUMMARY (CELL-BASED, NOT AREA-BASED)
+#-------------------------------------------------------------------------------
+coverage_summary <- grid_plot %>%
+  dplyr::summarise(
+    total_cells = dplyr::n(),
+    sampled_cells = sum(sampled),
+    coverage_perc = 100 * sampled_cells / total_cells
+  )
+#-------------------------------------------------------------------------------
+# OUTPUT CHECKS
+#-------------------------------------------------------------------------------
+pct_eez_covered      # 66.88529
+pct_offshore_covered # 61.2549
+pct_inshore_covered # 99.90423
+source_stats
 #source       pct_eez   pct_offshore   n_cells_sampled                   
-#CAPFISH      52.2        49.3              437 
+#CAPFISH      52.2        49.3              436 
 #MUSEUM       43.4        34.5             388 
 #DEM_TRAWL    25.4        14.5             223 
 #LINEFISH     13.0         9.82            105 
@@ -204,114 +279,62 @@ source_stats
 #BRUV          4.05        1.36            48 
 #LITERATURE    2.03        0.148          31 
 
-437+388+223+105+76+93+48+31
+coverage_summary
+#(BASED ON CELLS NOT ON AREA)
+#Bounding box: 13.34803 ymin: -38.17522 xmax: 36.53069 ymax: -26.86206
+#909 grid cells total
+#586 sampled total
+#64.47 % sampled
 
-#-------------------------------------------------------------------------------
-# 1. COVERAGE + INTENSITY FROM final_dat #-----sampling coverage plot
-#-------------------------------------------------------------------------------
-coverage <- final_dat %>%
-  st_drop_geometry() %>%
-  group_by(grid_id) %>%
-  summarise(
-    sampled   = any(!is.na(species)),
-    n_records = n(),
-    n_species = n_distinct(species),
-    .groups = "drop"
-  )
-
-#-------------------------------------------------------------------------------
-# 2. JOIN BACK TO GRID (to include unsampled cells)
-#-------------------------------------------------------------------------------
-grid_cov <- grid_sa %>%
-  left_join(coverage, by = "grid_id") %>%
-  mutate(
-    sampled   = replace_na(sampled, FALSE),
-    n_records = replace_na(n_records, 0L),
-    n_species = replace_na(n_species, 0L)
-  )
-
-#-------------------------------------------------------------------------------
-# 3. AREA-BASED EEZ COVERAGE (%)
-#-------------------------------------------------------------------------------
-target_crs <- 32735
-
-grid_cov_proj <- st_transform(grid_cov, target_crs)
-eez_proj      <- st_transform(eez_sa, target_crs)
-
-grid_cov_proj <- grid_cov_proj %>%
-  mutate(cell_area_m2 = as.numeric(st_area(geometry)))
-
-eez_area_m2 <- as.numeric(st_area(st_union(eez_proj)))
-
-pct_eez_covered <- 100 * sum(
-  grid_cov_proj$cell_area_m2[grid_cov_proj$sampled]
-) / eez_area_m2
-
-pct_eez_covered
-
-#-------------------------------------------------------------------------------
-# 4. PREP FOR PLOTTING
-#-------------------------------------------------------------------------------
-sa_proj        <- st_transform(sa, target_crs)
-final_dat_proj <- st_transform(
-  st_as_sf(final_dat, coords = c("longitude", "latitude"), crs = 4326),
-  target_crs
-)
-
-n_records_total <- nrow(final_dat)
-nrow(grid_cov)
-nrow(grid_cov_proj)
-table(grid_cov$sampled)
-table(grid_cov_proj$sampled)
-sum(is.na(grid_cov_proj$sampled))
-# how many cells actually intersect EEZ?
-sum(st_intersects(grid_sa, eez_sa, sparse = FALSE))
-
-#SUMMARY
 coverage_summary <- grid_cov %>%
-  summarise(
-    total_cells = n(),
+  dplyr::summarise(
+    total_cells = dplyr::n(),
     sampled_cells = sum(sampled),
     coverage_perc = 100 * sampled_cells / total_cells
   )
 
 subtitle_text <- paste0(
   "20 nm × 20 nm grid; ",
-  round(coverage_summary$coverage_perc, 1), "% of EEZ area sampled; ",
-  scales::comma(nrow(final_dat_proj)), " records plotted"
+  round(pct_eez_covered, 1), "% of EEZ area sampled; ",
+  scales::comma(nrow(final_dat)), " records plotted"
 )
 
-
 #-------------------------------------------------------------------------------
-# 5. COVERAGE MAP
+# COVERAGE MAP
 #-------------------------------------------------------------------------------
 p_cov <- ggplot() +
   geom_sf(data = sa_proj, fill = "grey90", color = "grey30", linewidth = 0.2) +
-  geom_sf(data = eez_proj, fill = NA, color = "red3", linewidth = 0.6) +
-  geom_sf(data = grid_cov_proj, aes(fill = sampled), color = NA, alpha = 0.95) +
-  geom_sf(data = final_dat_proj, color = "black", alpha = 0.12, size = 0.15) +
+  geom_sf(data = eez_proj, fill = NA, color = "red3", linewidth = 0.4) +
+  geom_sf(
+    data = grid_cov_proj,
+    aes(fill = sampled),
+    color = NA,
+    alpha = 0.95
+  ) +
+  geom_sf(
+    data = final_dat_proj,
+    color = "black",
+    alpha = 0.2,
+    size = 0.2
+  ) +
   scale_fill_manual(
     name   = "Sampling status",
-    values = c(`TRUE` = "steelblue", `FALSE` = "grey95"),
-    labels = c(`TRUE` = "Sampled", `FALSE` = "Unsampled")) +
+    values = c(`TRUE` = "steelblue", `FALSE` = "grey80"),
+    labels = c(`TRUE` = "Sampled", `FALSE` = "Unsampled")
+  ) +
   coord_sf(
     crs = 4326,
     xlim = c(10, 40),
     ylim = c(-40, -25),
-    expand = FALSE) +
-  scale_x_continuous(
-    name = "Longitude",
-    breaks = seq(10, 40, 5),
-    labels = function(x) paste0(x, "°E")) +
-  scale_y_continuous(
-    name = "Latitude",
-    breaks = seq(-40, -20, 5),
-    labels = function(x) paste0(abs(x), "°S")) +
-  theme_classic(base_family = "serif", base_size = 12) +
+    expand = FALSE
+  ) +
   labs(
+    x = "Longitude",
+    y = "Latitude",
     title = "Sampling coverage of South Africa’s EEZ",
     subtitle = subtitle_text
   ) +
+  theme_classic(base_family = "serif", base_size = 10) +
   theme(
     legend.position = "right",
     plot.margin = margin(6, 6, 6, 6)
@@ -320,61 +343,62 @@ p_cov <- ggplot() +
 p_cov
 
 ggsave(
-  filename = "FIG8_sampling_coverage.png",
+  filename = "figure8_sampling_coverage.png",
   plot = p_cov,
   width = 180, height = 120, units = "mm",
   dpi = 600
 )
 
-coverage_summary 
-#total_cells   sampled_cells coverage_perc  
-#  909           587         64.57646 
-
 #-------------------------------------------------------------------------------
 # SAMPLING INTENSITY (records per grid cell) #-----sampling intensity
+# grid_cov (already contains n_records per grid)
 #-------------------------------------------------------------------------------
+grid_heat <- grid_cov
 
-library(sf)
-library(dplyr)
-library(ggplot2)
-library(scales)
+coverage_intensity <- final_dat %>%
+  sf::st_drop_geometry() %>%
+  dplyr::group_by(grid_id) %>%
+  dplyr::summarise(
+    n_records = n(),
+    .groups = "drop"
+  )
 
+grid_plot <- grid_sa %>%
+  dplyr::left_join(coverage_intensity, by = "grid_id") %>%
+  dplyr::mutate(
+    n_records = tidyr::replace_na(n_records, 0L)
+  )
 #-------------------------------------------------------------------------------
-# 1. USE grid_cov (already contains n_records per grid)
-#-------------------------------------------------------------------------------
-
-grid_heat <- grid_cov   # rename for clarity if you like
-
-#-------------------------------------------------------------------------------
-# 2. PROJECT FOR MAPPING
-#-------------------------------------------------------------------------------
-
-target_crs <- 32735
-
+# PROJECT FOR MAPPING
+#------------------------------------------------------------------------------- 
 sa_proj   <- st_transform(sa, target_crs)
 eez_proj  <- st_transform(eez_sa, target_crs)
 grid_proj <- st_transform(grid_heat, target_crs)
-
+grid_plot_proj <- grid_plot %>%
+  sf::st_transform(target_crs)
 #-------------------------------------------------------------------------------
-# 3. SUMMARY STATS (for subtitle)
+# SUMMARY STATS 
 #-------------------------------------------------------------------------------
-
 n_records_total <- sum(grid_proj$n_records, na.rm = TRUE)
 n_cells_sampled <- sum(grid_proj$n_records > 0, na.rm = TRUE)
-
 #-------------------------------------------------------------------------------
-# 4. PLOT
+#PLOT
 #-------------------------------------------------------------------------------
+subtitle_text <- paste0(
+  "20 nm × 20 nm grid; ",
+  round(pct_eez_covered, 1), "% of EEZ area sampled; ",
+  scales::comma(nrow(final_dat)), " records"
+)
 
 p_int <- ggplot() +
   geom_sf(data = sa_proj, fill = "grey90", color = "grey30", linewidth = 0.2) +
   geom_sf(data = eez_proj, fill = NA, color = "red3", linewidth = 0.6) +
-  geom_sf(data = grid_proj, aes(fill = n_records), color = NA, alpha = 0.95) +
+  geom_sf(data = grid_plot_proj, aes(fill = n_records), color = NA, alpha = 0.95) +
   scale_fill_viridis_c(
     name   = "Records per cell",
     trans  = scales::pseudo_log_trans(base = 10),
     option = "plasma",
-    breaks = c(0, 1, 10, 100, 1000, 10000, 100000),
+    breaks = c(1, 10, 100, 1000, 10000, 100000),
     labels = comma
   ) +
   coord_sf(
@@ -382,6 +406,12 @@ p_int <- ggplot() +
     xlim = c(10, 40),
     ylim = c(-40, -25),
     expand = FALSE
+  ) +
+  labs(
+    x = "Longitude",
+    y = "Latitude",
+    title = "Sampling intensity across South Africa’s EEZ",
+    subtitle = subtitle_text
   ) +
   scale_x_continuous(
     name   = "Longitude",
@@ -398,7 +428,7 @@ p_int <- ggplot() +
     legend.position = "right",
     legend.title    = element_text(size = 9),
     legend.text     = element_text(size = 8),
-    plot.title      = element_text(face = "bold", size = 11),
+    plot.title      = element_text(face = "bold", size = 10),
     plot.subtitle   = element_text(size = 9),
     axis.text  = element_text(size = 8),
     axis.title = element_text(size = 9),
@@ -408,7 +438,7 @@ p_int <- ggplot() +
 p_int
 
 ggsave(
-  filename = "FIG9_sampling_intensity.png",
+  filename = "figure9_sampling_intensity.png",
   plot = p_int,
   width = 180, height = 120, units = "mm",
   dpi = 600
@@ -418,7 +448,28 @@ ggsave(
 #-----MPA coverage in % and source specific MPA coverage (Table 5)
 #-------------------------------------------------------------------------------
 # EEZ-level MPA coverage
+
+mpas <- st_read(
+  "MAPPING/SANBI_PA",
+  layer = "SANBI_PA_2023Q4_July2024",
+  options = "PROMOTE_TO_MULTI=YES"
+) %>%
+  st_zm(drop = TRUE, what = "ZM") %>%
+  st_make_valid() %>%
+  st_transform(4326)
+
+mpas_sa <- st_intersection(mpas, eez_sa)
+
+mpas_sa <- mpas_sa %>%
+  dplyr::filter(TYPE == "Marine Protected Area")
+
+
 target_crs <- 32735
+
+final_dat <- final_dat %>%
+  mutate(
+    in_mpa = lengths(st_within(geometry, mpas_sa)) > 0
+  )
 
 eez_proj  <- st_transform(eez_sa, target_crs)
 mpa_proj  <- st_transform(mpas_sa, target_crs)
@@ -427,7 +478,7 @@ eez_area <- as.numeric(st_area(st_union(eez_proj)))
 mpa_area <- as.numeric(st_area(st_union(mpa_proj)))
 
 pct_mpa_eez <- 100 * mpa_area / eez_area
-pct_mpa_eez #5.366536
+pct_mpa_eez #5.361109
 
 mpa_record_summary <- final_dat %>%
   summarise(
@@ -438,28 +489,29 @@ mpa_record_summary <- final_dat %>%
 
 mpa_record_summary
 #  total_records   records_in_mpa  pct_records_in_mpa 
-# 1106336          66415           6.003149 
+# 1106305          65825               5.95
 
 source_mpa <- final_dat %>%
+  st_drop_geometry() %>%   
   group_by(source) %>%
   summarise(
     n_records = n(),
-    n_in_mpa  = sum(in_mpa),
+    n_in_mpa  = sum(in_mpa, na.rm = TRUE),
     pct_in_mpa = 100 * n_in_mpa / n_records,
-    n_species = n_distinct(species[in_mpa == 1]),
+    n_species = n_distinct(species[in_mpa]),  
     .groups = "drop"
   ) %>%
   arrange(desc(pct_in_mpa))
 
 source_mpa
 # source      n_records  n_in_mpa   pct_in_mpa n_species                                
-#INAT            6387     5022     78.6         552 
-#BRUV           20164    14859     73.7         598 
-#LITERATURE      2557     1505     58.9         332 
-#MUSEUM         19173     8963     46.7        1316 
-#DEM_TRAWL     100577     3795      3.77         80 
-#LINEFISH      817090    28587      3.50         85 
-#CAPFISH       126929     3603      2.84         59 
+#INAT            6387     4695     73.5         535
+#BRUV           20164    14750     73.2         598
+#LITERATURE       2557     1479     57.8         331
+#MUSEUM         19173     8835     46.1        1301
+#DEM_TRAWL     100571     3795      3.77         80
+#LINEFISH     817090    28587      3.50         85
+#CAPFISH        126904     3603      2.84         59
 #MW_TRAWL       13459       81      0.602         8 
 
 #-------------------------------------------------------------------------------
@@ -469,7 +521,7 @@ source_mpa
 
 mpa_years <- mpas_sa %>%
   select(
-    mpa_name = ORIG_NME,        # <-- this is your MPA name
+    mpa_name = ORIG_NME,        
     declaration_year = DECL_YEAR
   )
 
@@ -494,8 +546,8 @@ mpa_temporal <- dat_sf_mpa %>%
   )
 
 mpa_temporal
-#  total_mpa_records post_decl_records    pct_post_decl   
-#  51556             26820                 52.0211 
+#  total_mpa_records    post_decl_records    pct_post_decl   
+#  51075                 26344               51.6 
 
 #for each mpa, table with decl year, n records, species n, % records post decl.
 dat_sf_mpa <- dat_sf_mpa %>%
@@ -594,7 +646,7 @@ bioregion_summary
 # Natal                          13162      1185      28
 # Delagoa                        13116      1042       6
 # West Indian Offshore            1891       312      42
-# NA                                31        13       3. #inspect
+
 
 # Attach bioregion to grid (via spatial join)
 grid_bio <- st_join(grid_sa, bioregions_9[, "region9"])
@@ -644,7 +696,7 @@ bioregion_cov
 # Natal                          99.8              17
 # Delagoa                        100                 2
 # West Indian Offshore           81.1              41
-# NA                               99.9               1 #inspect
+
 
 #UNDERPROTECTED BIOREGIONS
 grid_mpa <- grid_sa %>%
@@ -697,8 +749,7 @@ bio_gap_summary <- grid_full %>%
 
 bio_gap_summary
 
-#   region9             total_cells sampled_cells protected_cells undersampled_cells under_protected_cells critical_gap_cells pct_sampled pct_protected pct_critical_gap
-# NA                            1             0               0                  1                     1                  1         0            0              100   
+#   region9             total_cells sampled_cells protected_cells undersampled_cells under_protected_cells critical_gap_cells pct_sampled pct_protected pct_critical_gap         
 # Indo-Pacific Offsh…         241            71              14                170                   227                161        29.5          5.81            66.8 
 # Atlantic Offshore           251           172              34                 79                   217                 75        68.5         13.5             29.9 
 # South-west Indian …         286           198              55                 88                   231                 81        69.2         19.2             28.3 
@@ -764,3 +815,7 @@ p_gap <- ggplot() +
     name = "Critical gap"
   ) +
   theme_classic()
+
+p_gap 
+
+

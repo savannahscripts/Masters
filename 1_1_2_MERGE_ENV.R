@@ -38,22 +38,6 @@ depth <- depth_rast_4326 %>%
 depth[depth > 0] <- NA
 depth[depth < -6000] <- -6000
 #-------------------------------------------------------------------------------
-# MPAs
-#-------------------------------------------------------------------------------
-mpas <- st_read(
-  "MAPPING/SANBI_PA",
-  layer = "SANBI_PA_2023Q4_July2024",
-  options = "PROMOTE_TO_MULTI=YES"
-) %>%
-  st_zm(drop = TRUE, what = "ZM") %>%
-  st_make_valid() %>%
-  st_transform(4326)
-
-mpas_sa <- st_intersection(mpas, eez_sa)
-
-mpas_sa <- mpas_sa %>%
-  dplyr::filter(TYPE == "Marine Protected Area")
-#-------------------------------------------------------------------------------
 # BIOREGIONS (9 REGIONS)
 #-------------------------------------------------------------------------------
 bioregions <- st_read("~/Desktop/NSBA_layer6/biozones.shp") %>%
@@ -108,14 +92,12 @@ dat_sf <- dat_all %>%
 eez_sa      <- st_transform(eez_sa, 4326)
 bioregions_9 <- st_transform(bioregions_9, 4326)
 grid_sa     <- st_transform(grid_sa, 4326)
-mpas_sa     <- st_transform(mpas_sa, 4326)
 #-------------------------------------------------------------------------------
 # SPATIAL JOINS
 #-------------------------------------------------------------------------------
 dat_sf <- st_join(dat_sf, eez_sa, left = TRUE)
 dat_sf <- st_join(dat_sf, bioregions_9[, "region9"])
 dat_sf <- st_join(dat_sf, grid_sa[, "grid_id"])
-dat_sf <- st_join(dat_sf, mpas_sa[, "CUR_NME"], left = TRUE)
 #-------------------------------------------------------------------------------
 # ADD DEPTH
 #-------------------------------------------------------------------------------
@@ -125,11 +107,6 @@ dat_sf$depth <- depth_vals[,1]
 # Keep marine only
 dat_sf <- dat_sf %>%
   filter(!is.na(depth), depth <= 0)
-#add in mpa
-dat_sf <- dat_sf %>%
-  dplyr::mutate(
-    in_mpa = !is.na(CUR_NME)
-  )
 #-------------------------------------------------------------------------------
 # FINAL DATASET
 #-------------------------------------------------------------------------------
@@ -151,7 +128,6 @@ final_dat <- dat_sf %>%
     lon_orig,
     lat_orig,
     depth,
-    in_mpa,
     geometry
   ) %>%
   # rename coordinates
@@ -213,32 +189,25 @@ gear_lookup <- tibble::tribble(
   
   # DEMERSAL TRAWL
   "DEM_TRAWL", "Demersal trawl", "Demersal trawl (offshore & inshore)", "Bottom trawl",
-  
   # LINEFISH
   "LINEFISH", "LINE", "Shore and boat angling", "Angling",
   "LINEFISH", "POLE", "Pole", "Angling",
   "LINEFISH", "SHORTHAND_ROD", "Shorthand rod", "Angling",
   "LINEFISH", "SPEAR", "Spear", "Spear",
   "LINEFISH", "SHORT_SPEAR", "Spear", "Spear",
-  
   # BRUV
   "BRUV", "BRUV survey", "BRUV", "UVC/Visual",
-  
   # MUSEUM
   "MUSEUM", "PRESERVED_SPECIMEN", "Specimen (no gear)", NA_character_,
-  
   # CAPFISH
   "CAPFISH", "SAHLLA", "Longline", "Longline",
   "CAPFISH", "SECIFA", "Inshore demersal trawl", "Bottom trawl",
   "CAPFISH", "SAPFIA", "Purse seine (small pelagic)", "Seine",
   "CAPFISH", "SADSTIA", "Offshore demersal trawl", "Bottom trawl",
-  
   # MIDWATER
   "MW_TRAWL", "Midwater trawl", "Midwater trawl", "Midwater trawl",
-  
   # INAT
   "INAT", "HUMAN_OBSERVATION", "Citizen science", "UVC/Visual",
-  
   # LITERATURE
   "LITERATURE", "UVC", "UVC", "UVC/Visual",
   "LITERATURE", "ShoreAngling", "Shore angling", "Angling",
