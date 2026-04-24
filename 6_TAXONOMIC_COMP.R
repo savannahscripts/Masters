@@ -1,30 +1,148 @@
-#6.taxonomic composition
-#-----overal reoslution of integrated dataset
-#-----filtering stats
-#-----final stats of species, order, family etc,
-#-----taxonomic resolution per data source
-#-----raw record count versus weighted
-# treemap or sunburst here
+#-------------------------------------------------------------------------------
+# TAXONOMIC COMPOSITION AND HEIRARCHICAL ORGANISATION 
+#-------------------------------------------------------------------------------
+install.packages("plotly")
+install.packages("ggdendro")
+install.packages("treemap")
+install.packages("gt")
+library(treemap)
+library(dplyr)
+library(plotly)
+library(patchwork)
+library(gt)
+#-------------------------------------------------------------------------------
+#RESOLUTION SUMMARY
+#-------------------------------------------------------------------------------
+#before species clean
+length(unique(final_dat$species)) #2121
 
-#compare species count between dat_all, dat_species and after intersected with EEZ !!
+taxon_summary <- final_dat %>%
+  st_drop_geometry() %>%
+  count(taxonomic_resolution)                     
 
+taxon_summary
+#family    346
+#genus   111973
+#order      1
+#species 993985
 
-tax_richness_summary <- tibble::tibble(
-  Level = c("Order", "Family", "Species"),
-  n     = c(
-    n_distinct(final_dat$order),
-    n_distinct(final_dat$family),
-    n_distinct(final_dat$species)
+#-------------------------------------------------------------------------------
+# cleaned (using only known species) 
+# final_dat --> cleaned = most refined and filtered version
+#-------------------------------------------------------------------------------
+dat <- final_dat %>%
+  st_drop_geometry() %>%
+  mutate(
+    species = str_squish(as.character(species))
+  ) %>%
+  filter(
+    !is.na(species),
+    species != "",
+    str_count(species, "\\S+") == 2,
+    !str_detect(species, "\\bsp\\b|\\bspp\\b"),
+    !str_detect(species, "\\bcf\\.?\\b|\\baff\\.?\\b"),
+    !str_detect(species, regex("unknown|unidentified|indet", ignore_case = TRUE))
   )
+
+total_richness <- n_distinct(dat$species)
+total_richness #1945 species
+
+#176 species entries contained ambiguous epithets
+
+taxon_summary_clean <- dat %>%
+  st_drop_geometry() %>%  
+  count(taxonomic_resolution)  
+
+taxon_summary_clean 
+#family                    1
+#genus                    25
+#species              993783
+
+#-------------------------------------------------------------------------------
+#TAX RES PLOT FACETED BY SOURCE (using final_dat) not removing epithets
+#-------------------------------------------------------------------------------
+tax_levels <- c("species", "genus", "family", "order")
+
+taxon_by_source <- final_dat %>%
+  st_drop_geometry() %>%
+  count(source, taxonomic_resolution, name = "n_records") %>%
+  group_by(source) %>%
+  mutate(
+    perc = round(100 * n_records / sum(n_records), 2)
+  ) %>%
+  ungroup()
+
+#order 
+taxon_by_source <- taxon_by_source %>%
+  mutate(
+    taxonomic_resolution = factor(
+      taxonomic_resolution,
+      levels = c("species", "genus", "family", "order")
+    )
+  )
+#-------------------------------------------------------------------------------
+#PLOT
+#-------------------------------------------------------------------------------
+p_tax_faceted <- ggplot(
+  taxon_by_source,
+  aes(
+    x = taxonomic_resolution,
+    y = n_records,
+    fill = taxonomic_resolution
+  )) +
+  geom_col(
+    color = "black",
+    width = 0.7 ) +
+  facet_wrap(
+    ~ source,
+    ncol = 4,
+    labeller = labeller(source = c(
+      "BRUV"        = "BRUV (S)",
+      "CAPFISH"     = "CapMarine (O)",
+      "DEM_TRAWL"   = "Demersal trawl (S)",
+      "INAT"        = "iNaturalist (S)",
+      "LINEFISH"    = "Angling (C,O)",
+      "LITERATURE"  = "Literature (S,C,O)",
+      "MUSEUM"      = "Museum (S)",
+      "MW_TRAWL"    = "MW Trawl (O)"
+    ))) +
+  scale_fill_manual(
+    values = c(
+      "species" = "#2b5c7a",
+      "genus"   = "#6ba3c3",
+      "family"  = "#b7c9d3",
+      "order"   = "#e0e0e0"
+    )) +
+  scale_y_log10(labels = scales::comma) +
+  labs(
+    x = "Taxonomic Resolution",
+    y = "Number of Records (log scale)") +
+  theme_classic(base_family = "serif") +
+  theme(
+    strip.text = element_text(size = 9, face = "bold"),
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 8),
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 0.3))
+
+p_tax_faceted
+
+ggsave(
+  "figure14_taxonomic_resolution_faceted.pdf",
+  plot = p_tax_faceted,
+  width = 200,
+  height = 130,
+  units = "mm",
+  dpi = 600
 )
-# after second filtering step = 2121 species
-# 243 families
-# 35 orders
-
-
+#-------------------------------------------------------------------------------
+#HIERARCHICAL
+#-------------------------------------------------------------------------------
+total_richness <- n_distinct(dat$species)
+total_richness #1945 species
+#-------------------------------------------------------------------------------
+#Structure across order
 #order summary 
-order_summary <- final_dat %>%
-distinct(order, family, species) %>%
+order_summary <- dat %>%
+  distinct(order, family, species) %>%
   group_by(order) %>%
   summarise(
     n_families = n_distinct(family),
@@ -33,87 +151,87 @@ distinct(order, family, species) %>%
   ) %>%
   arrange(desc(n_species))
 
-order_summary
+print(order_summary, n = Inf)
+#   order             n_families n_species
+# Perciformes               97      1027
+# Myctophiformes             2       110
+# Anguilliformes            13       104
+# Tetraodontiformes          9       104
+# Scorpaeniformes           14        91
+# Gadiformes                 7        65
+# Pleuronectiformes          8        61
+# Lophiiformes              11        53
+# Aulopiformes              12        50
+# Gasterosteiformes          6        38
+# Ophidiiformes              5        37
+# Beryciformes               6        33
+# Beloniformes               4        24
+# Clupeiformes               5        20
+# Mugiliformes               1        19
+# Osmeriformes               4        18
+# Argentiniformes            2        15
+# Zeiformes                  6        13
+# Lampriformes               6        11
+# Notacanthiformes           2         8
+# Stomiiformes               4         8
+# Batrachoidiformes          1         7
+# Siluriformes               2         7
+# Atheriniformes             3         6
+# NA                         4         5 #inspect 🚩
+# Ateleopodiformes           1         3
+# Gonorynchiformes           2         3
+# Syngnathiformes            1         3
+# Albuliformes               1         2
+# Elopiformes                2         2
+# Polymixiiformes            1         1
 
-#tax res summary
-taxon_summary <- final_dat %>%
-  count(taxonomic_resolution)
-
-taxon_summary 
-
-
-#by source
-taxon_by_source <- final_dat %>%
-  count(source, taxonomic_resolution, name = "n_records") %>%
-  group_by(source) %>%
-  mutate(
-    perc = round(100 * n_records / sum(n_records), 2)
+#-------------------------------------------------------------------------------
+#SUNBURST PLOT
+#-------------------------------------------------------------------------------
+# species counts (clean and remove NAs)
+tax_summary <- dat %>%
+  filter(
+    !is.na(order),
+    !is.na(family),
+    !is.na(genus),
+    !is.na(species)
   ) %>%
-  ungroup()
-
-print(taxon_by_source, n = Inf)
-#-----------------------------#
-# DENDROGRAM TO SHOW PHYLOGENETICS
-#-----------------------------#
-install.packages("plotly")
-install.packages("ggdendro")
-library(dplyr)
-
-library(dplyr)
-
-# species counts
-tax_summary <- dat_species %>%
   distinct(order, family, genus, species) %>%
   count(order, family, genus, name = "n_species")
-
 # GENERA (leaf nodes)
 genera <- tax_summary %>%
-  transmute(
-    label = genus,
-    parent = family,
-    value = n_species
-  )
-
-# FAMILIES (aggregate from genera)
+  mutate(
+    id = paste(order, family, genus, sep = "_"),
+    parent = paste(order, family, sep = "_"),
+    label = genus
+  ) %>%
+  select(id, label, parent, value = n_species)
+# FAMILIES
 families <- tax_summary %>%
   group_by(order, family) %>%
   summarise(value = sum(n_species), .groups = "drop") %>%
-  transmute(
-    label = family,
+  mutate(
+    id = paste(order, family, sep = "_"),
     parent = order,
-    value = value
-  )
-
-# ORDERS (aggregate from families)
+    label = family
+  ) %>%
+  select(id, label, parent, value)
+# ORDERS (root level)
 orders <- tax_summary %>%
   group_by(order) %>%
   summarise(value = sum(n_species), .groups = "drop") %>%
-  transmute(
-    label = order,
+  mutate(
+    id = order,
     parent = "",
-    value = value
-  )
-
-# FINAL TREE
-#treemap
-install.packages("treemap")
-library(treemap)
-
-#working
-treemap(
-  tax_summary,
-  index = c("order", "family", "genus"),
-  vSize = "n_species",
-  title = "Taxonomic structure of marine teleost diversity"
-)
-
-#sunburst
+    label = order
+  ) %>%
+  select(id, label, parent, value)
+#COMBINE
 tree_data <- bind_rows(orders, families, genera)
 
-library(plotly)
-
-fig <- plot_ly(
+p_sunburst <- plot_ly(
   data = tree_data,
+  ids = ~id,
   labels = ~label,
   parents = ~parent,
   values = ~value,
@@ -121,64 +239,30 @@ fig <- plot_ly(
   branchvalues = "total"
 )
 
-fig
+p_sunburst
 
-#simplified sunburst
-
-top_families <- tax_summary %>%
-  group_by(family) %>%
-  summarise(n = sum(n_species)) %>%
-  arrange(desc(n)) %>%
-  slice_head(n = 15) %>%
-  pull(family)
-
-tax_summary_small <- tax_summary %>%
-  filter(family %in% top_families)
-
-# GENERA (leaf nodes)
-genera_small <- tax_summary_small %>%
-  transmute(
-    label = genus,
-    parent = family,
-    value = n_species
-  )
-
-# FAMILIES (aggregate from genera)
-families_small <- tax_summary_small %>%
-  group_by(order, family) %>%
-  summarise(value = sum(n_species), .groups = "drop") %>%
-  transmute(
-    label = family,
-    parent = order,
-    value = value
-  )
-
-# ORDERS (aggregate from families)
-orders_small <- tax_summary_small %>%
-  group_by(order) %>%
-  summarise(value = sum(n_species), .groups = "drop") %>%
-  transmute(
-    label = order,
-    parent = "",
-    value = value
-  )
-
-#sunburst
-tree_data_small <- bind_rows(orders_small, families_small, genera_small)
-
-
-sun_small <- plot_ly(
-  data = tree_data_small,
-  labels = ~label,
-  parents = ~parent,
-  values = ~value,
-  type = "sunburst",
-  branchvalues = "total"
+ggsave(
+  "figure15_sunburst.pdf",
+  plot = p_sunburst,
+  width = 200,
+  height = 130,
+  units = "mm",
+  dpi = 600
 )
 
-sun_small
+library(htmlwidgets)
 
-#FINAL
+saveWidget(
+  p_sunburst,
+  "figure15_sunburst.html",
+  selfcontained = TRUE
+)
+
+# upload html to github pages
+#“An interactive version of this figure is available at: [link]” 
+# or include as supplementary material and submit html and msc together --> “Supplementary Figure S15 (interactive)”
+#-------------------------------------------------------------------------------
+#TOP CONTRIBUTING FAMILIES TO SPECIWES RICHNESS
 top_families_plot <- tax_summary %>%
   group_by(family) %>%
   summarise(n_species = sum(n_species)) %>%
@@ -196,25 +280,20 @@ ggplot(top_families_plot, aes(x = reorder(family, n_species), y = n_species)) +
   theme_classic(base_family = "Times")
 
 #-------------------------------------------------------------------------------
-# RELATIVE WEIGHTING
+# RELATIVE WEIGHTING VERSUS RELATIVELY WEIGHTED
 #-------------------------------------------------------------------------------
-
 # Drop geometry ONLY where needed
 dat_nogeo <- final_dat %>% st_drop_geometry()
-
 # Source totals
 source_totals <- dat_nogeo %>%
   count(source, name = "n_source_records")
-
 # Join back to original sf safely
 dat_weighted <- final_dat %>%
   left_join(source_totals, by = "source") %>%
   mutate(record_weight = 1 / n_source_records)
-
 #-------------------------------------------------------------------------------
 # TOP RAW COUNTS
 #-------------------------------------------------------------------------------
-
 top_species <- dat_weighted %>%
   st_drop_geometry() %>%
   filter(!is.na(species)) %>%
@@ -226,11 +305,45 @@ top_families <- dat_weighted %>%
   filter(!is.na(family)) %>%
   count(family, sort = TRUE) %>%
   slice_max(n, n = 20)
+#-------------------------------------------------------------------------------
+# RAW PLOTS
+#-------------------------------------------------------------------------------
+raw_species <- ggplot(top_species,
+                      aes(x = reorder(species, n), y = n)) +
+  geom_col(fill = "grey60", color = "black", width = 0.7) +
+  coord_flip() +
+  scale_y_continuous(labels = scales::comma) +
+  labs(
+    title = "Most Frequently Recorded Species (raw count)",
+    x = "Species",
+    y = "Number of Records"
+  ) +
+  theme_classic(base_family = "serif", base_size = 9) + 
+  theme(
+    axis.text.y = element_text(size = 8),   
+    axis.text.x = element_text(size = 8),
+    plot.title  = element_text(size = 10)
+  )
 
+raw_family <- ggplot(top_families,
+                     aes(x = reorder(family, n), y = n)) +
+  geom_col(fill = "grey60", color = "black", width = 0.7) +
+  coord_flip() +
+  scale_y_continuous(labels = scales::comma) +
+  labs(
+    title = "Most Frequently Recorded Families (raw count)",
+    x = "Family",
+    y = "Number of Records"
+  ) +
+  theme_classic(base_family = "serif", base_size = 9) + 
+  theme(
+    axis.text.y = element_text(size = 8),   
+    axis.text.x = element_text(size = 8),
+    plot.title  = element_text(size = 10)
+  )
 #-------------------------------------------------------------------------------
 # WEIGHTED SPECIES
 #-------------------------------------------------------------------------------
-
 species_weighted <- dat_weighted %>%
   st_drop_geometry() %>%
   group_by(species) %>%
@@ -250,41 +363,10 @@ top_species_weighted <- species_weighted %>%
       species
     )
   )
-
 # Proper ordering
 top_species_weighted_plot_df <- top_species_weighted %>%
   arrange(weighted_records) %>%
   mutate(species = factor(species, levels = species))
-
-#-------------------------------------------------------------------------------
-# RAW PLOTS
-#-------------------------------------------------------------------------------
-
-raw_species <- ggplot(top_species,
-                      aes(x = reorder(species, n), y = n)) +
-  geom_col(fill = "grey60", color = "black", width = 0.7) +
-  coord_flip() +
-  labs(
-    title = "Most Frequently Recorded Species (raw count)",
-    x = "Species",
-    y = "Number of Records"
-  ) +
-  theme_classic(base_family = "serif")
-
-raw_family <- ggplot(top_families,
-                     aes(x = reorder(family, n), y = n)) +
-  geom_col(fill = "grey60", color = "black", width = 0.7) +
-  coord_flip() +
-  labs(
-    title = "Most Frequently Recorded Families (raw count)",
-    x = "Family",
-    y = "Number of Records"
-  ) +
-  theme_classic(base_family = "serif")
-
-#-------------------------------------------------------------------------------
-# WEIGHTED SPECIES PLOT
-#-------------------------------------------------------------------------------
 
 weight_species_plot <- ggplot(top_species_weighted_plot_df,
                               aes(x = species,
@@ -292,7 +374,7 @@ weight_species_plot <- ggplot(top_species_weighted_plot_df,
                                   fill = n_sources)) +
   geom_col(color = "black", width = 0.7) +
   geom_text(aes(label = round(weighted_records, 3)),
-            hjust = -0.1, size = 4, family = "serif") +
+            hjust = -0.1, size = 2.8, family = "serif") +
   coord_flip() +
   scale_fill_gradient(low = "lightblue", high = "darkblue",
                       name = "Number of Sources") +
@@ -302,12 +384,17 @@ weight_species_plot <- ggplot(top_species_weighted_plot_df,
     x = "Species",
     y = "Weighted Record Score"
   ) +
-  theme_classic(base_family = "serif")
-
+  theme_classic(base_family = "serif", base_size = 9) +
+  theme(
+    axis.text.y = element_text(size = 8), 
+    axis.text.x = element_text(size = 8),
+    legend.text = element_text(size = 8),
+    legend.title = element_text(size = 9),
+    plot.title  = element_text(size = 10)
+  )
 #-------------------------------------------------------------------------------
 # WEIGHTED FAMILY
 #-------------------------------------------------------------------------------
-
 family_weighted <- dat_weighted %>%
   st_drop_geometry() %>%
   filter(!is.na(family)) %>%
@@ -332,7 +419,7 @@ weight_family_plot <- ggplot(top_family_weighted_plot_df,
                                  fill = n_sources)) +
   geom_col(color = "black", width = 0.7) +
   geom_text(aes(label = round(weighted_records, 3)),
-            hjust = -0.1, size = 4, family = "serif") +
+            hjust = -0.1, size = 2.8, family = "serif") +
   coord_flip() +
   scale_fill_gradient(low = "lightblue", high = "darkblue",
                       name = "Number of Sources") +
@@ -342,283 +429,123 @@ weight_family_plot <- ggplot(top_family_weighted_plot_df,
     x = "Family",
     y = "Weighted Record Score"
   ) +
-  theme_classic(base_family = "serif")
-
+  theme_classic(base_family = "serif", base_size = 9) +
+  theme(
+    axis.text.y = element_text(size = 8), 
+    axis.text.x = element_text(size = 8),
+    legend.text = element_text(size = 8),
+    legend.title = element_text(size = 9),
+    plot.title  = element_text(size = 10)
+  )
 #-------------------------------------------------------------------------------
 # PANELS
 #-------------------------------------------------------------------------------
-
-library(patchwork)
-
 p1 <- raw_species | weight_species_plot +
   plot_annotation(title = "Raw vs Weighted Species Dominance")
 
 p2 <- raw_family | weight_family_plot +
   plot_annotation(title = "Raw vs Weighted Family Dominance")
 
-
 p1
 p2
+
+ggsave("figure16_species_freq.png", p1, width = 14, height = 8, units = "in")
+ggsave("figure17_family_freq.png", p2, width = 14, height = 8, units = "in")
 #-------------------------------------------------------------------------------
-# SAVE
-#-------------------------------------------------------------------------------
-
-ggsave("species_freq.png", p1, width = 14, height = 8, units = "in")
-ggsave("family_freq.png", p2, width = 14, height = 8, units = "in")
-
-
-
-top_family_weighted
-top_species_weighted
-
-top_families
 top_species
-
-
-
-
-#-------------------------------------------------------------------------------
-#RELATIVE WEIGHTING
-#-------------------------------------------------------------------------------
-class(final_dat)
-
-source_totals <- final_dat %>%
-  st_drop_geometry() %>%
-  count(source, name = "n_source_records")
-
-dat_weighted <- final_dat %>%
-  left_join(source_totals, by = "source")
-
-dat_weighted <- dat_weighted %>%
-  mutate(record_weight = 1 / n_source_records)
-
-#top 20 spp
-top_species <- dat_weighted%>%
-  filter(!is.na(species)) %>%
-  count(species, sort = TRUE) %>%
-  slice_max(n, n = 20)
-
-#top 20 spp
-top_families <- dat_weighted %>%
-  filter(!is.na(family)) %>%
-  count(family, sort = TRUE) %>%
-  slice_max(n, n = 20)
-
-
-species_weighted <- dat_weighted %>%
-  group_by(species) %>%
-  summarise(
-    weighted_records = sum(record_weight, na.rm = TRUE),
-    n_sources       = n_distinct(source),
-    .groups = "drop"
-  ) %>%
-  arrange(desc(weighted_records))
-
-
-top_species_weighted <- species_weighted %>%
-  slice_max(order_by = weighted_records, n = 20)
-
 top_species_weighted
-
-top_species_weighted_plot <- top_species_weighted %>%
-  arrange(weighted_records) %>%                       # ascending
-  mutate(species = factor(species, levels = species)) # factor in that order
-
-
-ggplot(top_species_weighted_plot,
-       aes(x = species, y = weighted_records)) +
-  geom_col(fill = "grey70", color = "black", width = 0.7) +
-  geom_text(aes(label = round(weighted_records, 3)),
-            hjust = -0.1, size = 3.2, family = "Times") +
-  coord_flip() +
-  labs(
-    title = "Top Marine Teleost Species by Source-Weighted Record Frequency",
-    x = "Species",
-    y = "Weighted Record Score"
-  ) +
-  theme_classic(base_family = "serif", base_size = 14) +
-  theme(
-    panel.border  = element_rect(color = "black", fill = NA, linewidth = 0.7),
-    axis.line     = element_line(color = "black"),
-    axis.title.y  = element_text(margin = margin(r = 10)),
-    axis.title.x  = element_text(margin = margin(t = 5)),
-    plot.title    = element_text(face = "bold", hjust = 0.5)
-  )
-
-top_species_weighted_plot <- top_species_weighted %>%
-  mutate(
-    species = if_else(
-      species == "Argyrosomus inodorus and japonicus",
-      "Argyrosomus inodorus / japonicus",
-      species
-    )
-  ) %>%
-  arrange(weighted_records) %>%
-  mutate(species = factor(species, levels = species))
-
-raw_species <- ggplot(top_species, aes(x = reorder(species, n), y = n)) +
-  geom_col(fill = "grey60", color = "black", width = 0.7) +
-  coord_flip() +
-  labs(
-    title = "Most Frequently Recorded Species (raw count)",
-    x = "Species",
-    y = "Number of Records"
-  ) +
-  theme_classic(base_family = "serif") +
-  theme(
-    panel.border = element_rect(color = "black", fill = NA, linewidth = 0.5),
-    axis.line = element_line(color = "black"),
-    axis.title.y = element_text(margin = margin(r = 10), size = 11),
-    axis.title.x = element_text(margin = margin(t = 10), size = 11),
-    axis.text = element_text(size = 11),
-    plot.title = element_text(size = 12, face = "bold", hjust = 0.5)
-  )
-
-raw_family <- ggplot(top_families, aes(x = reorder(family, n), y = n)) +
-  geom_col(fill = "grey60", color = "black", width = 0.7) +
-  scale_y_continuous(labels = scales::label_number()) +
-  coord_flip() +
-  labs(
-    title = "Most Frequently Recorded Families (raw count)",
-    x = "Family",
-    y = "Number of Records"
-  ) +
-  theme_classic(base_family = "serif") +
-  theme(
-    panel.border = element_rect(color = "black", fill = NA, linewidth = 0.5),
-    axis.line = element_line(color = "black"),
-    axis.title.y = element_text(margin = margin(r = 10), size = 11),
-    axis.title.x = element_text(margin = margin(t = 10), size = 11),
-    axis.text = element_text(size = 11),
-    plot.title = element_text(size = 12, face = "bold", hjust = 0.5)
-  )
-
-weight_species_plot <- ggplot(top_species_weighted_plot,
-                              aes(x = species,
-                                  y = weighted_records,
-                                  fill = n_sources)) +
-  
-  geom_col(color = "black", width = 0.7) +
-  
-  # Labels: weighted score, 3 dp
-  geom_text(aes(label = round(weighted_records, 3)),
-            hjust = -0.1, size = 4, family = "serif") +
-  
-  coord_flip() +
-  
-  scale_fill_gradient(
-    low = "lightblue",
-    high = "darkblue",
-    name = "Number of Sources"
-  ) +
-  
-  labs(
-    title = "Top Marine Teleost Species by Weighted Record Score",
-    x = "Species",
-    y = "Weighted Record Score"
-  ) +
-  
-  scale_y_continuous(expand = expansion(mult = c(0, 0.1))) +
-  
-  theme_classic(base_family = "serif", base_size = 12) +
-  theme(
-    panel.border  = element_rect(color = "black", fill = NA, linewidth = 0.7),
-    axis.line     = element_line(color = "black"),
-    axis.title.y  = element_text(margin = margin(r = 10)),
-    axis.text.y   = element_text(size = 11),
-    legend.position = "right",
-    plot.title    = element_text(face = "bold", size = 12, hjust = 0.5)
-  )
-
-
-family_weighted <- dat_weighted %>%
-  filter(!is.na(family)) %>% 
-  group_by(family) %>%
-  summarise(
-    weighted_records = sum(record_weight, na.rm = TRUE),
-    n_sources       = n_distinct(source),
-    .groups = "drop"
-  ) %>%
-  arrange(desc(weighted_records))
-
-
-top_family_weighted <- family_weighted %>%
-  slice_max(order_by = weighted_records, n = 20)
-
+#-------------------------------------------------------------------------------
+top_families
 top_family_weighted
-
-top_family_weighted_plot <- top_family_weighted %>%
-  arrange(weighted_records) %>%                       # ascending
-  mutate(family = factor(family, levels = family)) # factor in that order
-
-
-weight_family_plot <- ggplot(top_family_weighted_plot,
-                             aes(x = family,
-                                 y = weighted_records,
-                                 fill = n_sources)) +
-  
-  geom_col(color = "black", width = 0.7) +
-  
-  # Labels: weighted score, 3 dp
-  geom_text(aes(label = round(weighted_records, 3)),
-            hjust = -0.1, size = 4, family = "serif") +
-  
-  coord_flip() +
-  
-  scale_fill_gradient(
-    low = "lightblue",
-    high = "darkblue",
-    name = "Number of Sources"
-  ) +
-  
-  labs(
-    title = "Top Marine Teleost Families by Weighted Record Score",
-    x = "Family",
-    y = "Weighted Record Score"
-  ) +
-  
-  scale_y_continuous(expand = expansion(mult = c(0, 0.1))) +
-  
-  theme_classic(base_family = "serif", base_size = 12) +
-  theme(
-    panel.border  = element_rect(color = "black", fill = NA, linewidth = 0.7),
-    axis.line     = element_line(color = "black"),
-    axis.title.y  = element_text(margin = margin(r = 10)),
-    axis.text.y   = element_text(size = 11),
-    legend.position = "right",
-    plot.title    = element_text(face = "bold", size = 12, hjust = 0.5)
+#-------------------------------------------------------------------------------
+#COMPARE
+#-------------------------------------------------------------------------------
+#SPECIES RAW
+raw_species_rank <- top_species %>%
+  arrange(desc(n)) %>%
+  mutate(
+    raw_rank = row_number(),
+    raw_n = n
+  ) %>%
+  select(species, raw_rank, raw_n)
+#SPECIES WEIGHTED
+weighted_species_rank <- species_weighted %>%
+  arrange(desc(weighted_records)) %>%
+  mutate(
+    weighted_rank = row_number()
+  ) %>%
+  select(species, weighted_rank, weighted_records, n_sources)
+#SPECIES JOIN
+species_compare <- raw_species_rank %>%
+  full_join(weighted_species_rank, by = "species") %>%
+  mutate(
+    rank_change = raw_rank - weighted_rank,
+    rank_change = replace_na(rank_change, 0),
+    raw_present = !is.na(raw_rank)
+  ) %>%
+  arrange(weighted_rank)
+#-------------------------------------------------------------------------------
+species_compare <- species_compare %>%
+  mutate(
+    change_flag = case_when(
+      rank_change >= 5  ~ "↑ Strong increase",
+      rank_change <= -5 ~ "↓ Strong decrease",
+      TRUE ~ "Stable"
+    )
   )
 
-#PANEL
-library(patchwork)
-
-p1 <- raw_species | weight_species_plot +
-  plot_annotation(
-    title = "Comparison of Raw and Source-Weighted Species Dominance",
-    tag_levels = "A"
+species_compare %>%
+  slice(1:20) 
+#-------------------------------------------------------------------------------
+#FAMILIES RAW
+raw_family_rank <- top_families %>%
+  arrange(desc(n)) %>%
+  mutate(
+    raw_rank = row_number(),
+    raw_n = n
+  ) %>%
+  select(family, raw_rank, raw_n)
+#FAMILIES WEIGHTED
+weighted_family_rank <- family_weighted %>%
+  arrange(desc(weighted_records)) %>%
+  mutate(
+    weighted_rank = row_number()
+  ) %>%
+  select(family, weighted_rank, weighted_records, n_sources)
+#FAMILIES JOIN
+family_compare <- raw_family_rank %>%
+  full_join(weighted_family_rank, by = "family") %>%
+  mutate(
+    rank_change = raw_rank - weighted_rank,
+    rank_change = replace_na(rank_change, 0),
+    raw_present = !is.na(raw_rank)
+  ) %>%
+  arrange(weighted_rank)
+#-------------------------------------------------------------------------------
+family_compare <- family_compare %>%
+  mutate(
+    change_flag = case_when(
+      rank_change >= 5  ~ "↑ Strong increase",
+      rank_change <= -5 ~ "↓ Strong decrease",
+      TRUE ~ "Stable"
+    )
   )
-p2 <- raw_family | weight_family_plot +
-  plot_annotation(
-    title = "Comparison of Raw and Source-Weighted Family Dominance",
-    tag_levels = "A"
-  )
 
-p1
-p2
+family_compare %>%
+  slice(1:20) 
 
+#NA interpretation: Several species that did not rank highly in raw record 
+#counts emerged as dominant when weighted by source contribution. These species
+#were typically supported across multiple independent datasets, suggesting that 
+#they represent broadly distributed and consistently observed taxa rather than 
+#artefacts of sampling intensity.
 
-ggsave(
-  "species freq.png",
-  p1,
-  width = 14,
-  height = 8,
-  units = "in"
-)
+#High weighted rank is driven by multi-source consistency, not sampling intensity
+#e.g. Scomber japonicus n_sources = 7
 
-ggsave(
-  "family freq.png",
-  p2,
-  width = 14,
-  height = 8,
-  units = "in"
-)
+#NA means	            | Interpretation
+#Missing raw rank	    | Not dominant in any one dataset
+#High weighted rank	  | Strong cross-dataset support
+#High n_sources	      | Robust ecological signal
+#-------------------------------------------------------------------------------
+#-------------------------------------------------------------------------------

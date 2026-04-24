@@ -24,6 +24,3 @@ source_summary_final <- final_dat %>%
 # MW_TRAWL       13459        43        1.21
 # INAT            6804       621         0.61
 # LITERATURE      3190       512         0.29
-
-
-

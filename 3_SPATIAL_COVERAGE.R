@@ -760,62 +760,8 @@ bio_gap_summary
 # Delagoa                       7             7               7                  0                     0                  0       100          100                0   
 # South-Western Cape           45            45              21                  0                    24                  0       100           46.7              0 
 
-#COAST
-grid_coast_lookup <- final_dat %>%
-  st_drop_geometry() %>%
-  distinct(grid_id, coast)
+#-------------------------------------------------------------------------------
+#-------------------------------------------------------------------------------
 
-grid_coast_cov <- grid_sa %>%
-  left_join(grid_coast_lookup, by = "grid_id") %>%
-  left_join(
-    final_dat %>%
-      st_drop_geometry() %>%
-      distinct(grid_id) %>%
-      mutate(sampled = TRUE),
-    by = "grid_id"
-  ) %>%
-  mutate(
-    sampled = replace_na(sampled, FALSE),
-    not_sampled = !sampled
-  )
-
-coast_gap_summary <- grid_coast_cov %>%
-  st_drop_geometry() %>%
-  left_join(
-    grid_full %>% st_drop_geometry() %>% select(grid_id, in_mpa),
-    by = "grid_id"
-  ) %>%
-  mutate(
-    not_protected = !in_mpa,
-    critical_gap = not_sampled & not_protected
-  ) %>%
-  group_by(coast) %>%
-  summarise(
-    total_cells = n(),
-    sampled_cells = sum(sampled),
-    undersampled_cells = sum(not_sampled),
-    protected_cells = sum(in_mpa),
-    under_protected_cells = sum(not_protected),
-    critical_gap_cells = sum(critical_gap),
-    percent_sampled = 100 * sampled_cells / total_cells,
-    percent_undersampled = 100 * undersampled_cells / total_cells,
-    percent_protected = 100 * protected_cells / total_cells,
-    percent_critical_gap = 100 * critical_gap_cells / total_cells,
-    .groups = "drop"
-  )
-
-coast_gap_summary
-#did not work
-
-#GAP PLOT
-p_gap <- ggplot() +
-  geom_sf(data = grid_full, aes(fill = critical_gap), color = NA) +
-  scale_fill_manual(
-    values = c("TRUE" = "red", "FALSE" = "grey90"),
-    name = "Critical gap"
-  ) +
-  theme_classic()
-
-p_gap 
-
-
+#maybe coast?
+#-------------------------------------------------------------------------------
