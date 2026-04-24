@@ -1,4 +1,3 @@
-
 #-------------------------------------------------------------------------------
 #SPATIAL COVERAGE
 #-------------------------------------------------------------------------------
@@ -138,14 +137,9 @@ ggsave(
 )
 
 #-------------------------------------------------------------------------------
-# GRID-LEVEL SAMPLING + DEPTH (FAST + CONSISTENT)
-#-------------------------------------------------------------------------------
-#total sampling coverage of eez grid (%) including % offshore (by source)
-#-------------------------------------------------------------------------------
-#-------------------------------------------------------------------------------
 # GRID-LEVEL SAMPLING + DEPTH (FULL EEZ GRID)
 #-------------------------------------------------------------------------------
-# Extract depth for ALL grid cells (NOT from final_dat)
+# Extract depth for ALL grid cells 
 coords <- sf::st_coordinates(sf::st_centroid(grid_sa))
 depth_vals <- terra::extract(depth, coords)
 
@@ -168,11 +162,9 @@ grid_proj <- grid_cov %>%
 eez_proj <- sf::st_transform(eez_sa, target_crs)
 
 eez_area <- as.numeric(sf::st_area(sf::st_union(eez_proj)))
-
 #-------------------------------------------------------------------------------
 # COVERAGE METRICS (EEZ-WIDE)
 #-------------------------------------------------------------------------------
-
 # Total EEZ coverage
 pct_eez_covered <- 100 * sum(
   grid_proj$cell_area[grid_proj$sampled], na.rm = TRUE
@@ -194,12 +186,10 @@ pct_inshore_covered <- grid_proj %>%
       sum(cell_area, na.rm = TRUE)
   ) %>%
   dplyr::pull(pct)
-
 #-------------------------------------------------------------------------------
 # SOURCE-SPECIFIC ANALYSIS (FULL EEZ)
 #-------------------------------------------------------------------------------
-
-# Add depth_zone from FULL grid (not observation-derived)
+# Add depth_zone from grid
 source_grid_sf <- source_grid_sf %>%
   dplyr::left_join(
     grid_cov %>%
@@ -229,9 +219,8 @@ source_stats <- source_grid_sf %>%
   ) %>%
   dplyr::arrange(desc(pct_eez))
 #-------------------------------------------------------------------------------
-# COVERAGE + INTENSITY (FOR MAPS / FIGURES)
+# COVERAGE + INTENSITY 
 #-------------------------------------------------------------------------------
-
 coverage_intensity <- final_dat %>%
   sf::st_drop_geometry() %>%
   dplyr::group_by(grid_id) %>%
@@ -249,7 +238,6 @@ grid_plot <- grid_sa %>%
     n_records = tidyr::replace_na(n_records, 0L),
     n_species = tidyr::replace_na(n_species, 0L)
   )
-
 #-------------------------------------------------------------------------------
 # SUMMARY (CELL-BASED, NOT AREA-BASED)
 #-------------------------------------------------------------------------------

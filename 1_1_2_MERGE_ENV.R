@@ -12,6 +12,7 @@ library(sf)
 library(dplyr)
 library(ggrepel)
 library(terra)
+library(scales)
 #-------------------------------------------------------------------------------
 # BASE SPATIAL LAYERS
 #------------------------------------------------------------------------------
@@ -256,36 +257,7 @@ table(is.na(final_dat$grid_id))
 #-------------------------------------------------------------------------------
 #PLOTS
 #-------------------------------------------------------------------------------
-#1. depth
-par(
-  family = "serif",
-  cex = 1.1,        # overall text size
-  cex.axis = 1,     # axis tick labels
-  cex.lab = 1.2,    # axis titles
-  cex.main = 1.3    # main title
-)
-
-p_depth <- plot(depth)
-agg_png("p_depth.png", width = 8, height = 6, units = "in", res = 600)
-par(family = "serif")
-plot(depth)
-dev.off()
-
-#2. bioregions
-p_bioregions <- ggplot() +
-  geom_sf(data = bioregions_9, aes(fill = region9), color = "black", size = 0.3) +
-  scale_fill_brewer(palette = "Set3") +
-  coord_sf(expand = FALSE) +
-  theme_classic(base_family = "serif") +
-  theme(
-    panel.background = element_rect(fill = "#dbeaf2"),
-    legend.position = "none", 
-    axis.title = element_blank()
-  )
-
-ggsave("p_bioregions.png", p_bioregions,
-       width = 8, height = 6, dpi = 600)
-#3. study area (eez and grid with sa map)
+#study area (eez and grid with sa map)
 p_study <- ggplot() +
   geom_sf(data = sa, fill = "grey95", colour = "black", linewidth = 0.3) +
   geom_sf(data = eez_sa, fill = NA, colour = "red", linewidth = 0.6) +
@@ -303,10 +275,46 @@ p_study <- ggplot() +
 
 p_study
 
-ggsave("p_study.png", p_study,
+ggsave("figure3_p_study.png", p_study,
        width = 8, height = 6, dpi = 600)
+#-------------------------------------------------------------------------------
+#depth
+depth_df <- as.data.frame(depth, xy = TRUE, na.rm = TRUE)
 
-#4.mpa map
+names(depth_df)[3] <- "depth"
+
+p_depth <- ggplot() +
+  geom_sf(data = sa, fill = "grey95", colour = "black", linewidth = 0.3) +
+  geom_sf(
+    data = grid_sa,
+    aes(fill = depth),
+    colour = NA
+  ) +
+  scale_fill_viridis_c(
+    option = "C",
+    direction = -1,   
+    trans = "log10",        
+    name = "Depth (m)",
+    labels = label_number()
+  ) +
+  coord_sf(xlim = c(12, 37), ylim = c(-39, -27), expand = FALSE) +
+  labs(
+    x = "Longitude (°E)",
+    y = "Latitude (°S)"
+  ) +
+  theme_classic(base_family = "serif") +
+  theme(
+    panel.border = element_rect(colour = "black", fill = NA),
+    plot.margin = margin(10, 10, 10, 10),
+    legend.position = "right"
+  )
+
+p_depth
+
+ggsave("figure4_depth.png", p_depth,
+       width = 8, height = 6, dpi = 600)
+#-------------------------------------------------------------------------------
+#mpa map
 p_mpa <- ggplot() +
 geom_sf(
   data = sa,
@@ -350,5 +358,28 @@ theme(
 
 p_mpa
 
-ggsave("p_mpa.png", p_mpa,
+ggsave("figure5_p_mpa.png", p_mpa,
        width = 8, height = 6, dpi = 600)
+#-------------------------------------------------------------------------------
+# bioregions
+p_bioregions <- ggplot() +
+  geom_sf(data = bioregions_9, aes(fill = region9), color = "black", size = 0.3) +
+  scale_fill_brewer(palette = "Set3") +
+  coord_sf(expand = FALSE) +
+  labs(
+    x = "Longitude (°E)",
+    y = "Latitude (°S)"
+  ) +
+  theme_classic(base_family = "serif") +
+  theme(
+    panel.background = element_rect(fill = "#dbeaf2"),
+    legend.position = "none", 
+    axis.title = element_blank()
+  )
+
+p_bioregions
+
+ggsave("figure6_p_bioregions.png", p_bioregions,
+       width = 8, height = 6, dpi = 600)
+#-------------------------------------------------------------------------------
+#-------------------------------------------------------------------------------

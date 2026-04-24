@@ -1,103 +1,193 @@
-# ============================================================
-#NMDS
-# ============================================================
-library(dplyr)
+#-------------------------------------------------------------------------------
+# 8. ASSEMBLAGE PATTERNS
+#-------------------------------------------------------------------------------
+install.packages("zoo")
 library(tidyr)
 library(vegan)
-
-# GRID × METHOD × FAMILY matrix
+library(dplyr)
+library(ggplot2)
+library(tibble)
+library(forcats)
+library(scales)
+library(zoo)
+#-------------------------------------------------------------------------------
+# NMDS
+#-------------------------------------------------------------------------------
+# grid × method × family matrix
 nmds_df <- final_dat %>%
-  filter(!is.na(grid_id), !is.na(family), !is.na(method)) %>%
-  group_by(grid_id, method, family) %>%
+  filter(!is.na(grid_id), !is.na(family), !is.na(gear_grouped)) %>%
+  group_by(grid_id, gear_grouped, family) %>%
   summarise(n = n(), .groups = "drop") %>%
-  mutate(row_id = paste(grid_id, method, sep = "_")) %>%
+  mutate(row_id = paste(grid_id, gear_grouped, sep = "_")) %>%
   pivot_wider(
     names_from = family,
     values_from = n,
     values_fill = 0
   )
+#-------------------------------------------------------------------------------
 # metadata
 meta <- nmds_df %>%
-  select(row_id, grid_id, method)
+  select(row_id, grid_id, gear_grouped)
 # matrix
 mat <- nmds_df %>%
-  select(-row_id, -grid_id, -method)
-# presence/absence 
+  select(-row_id, -grid_id, -gear_grouped) %>%
+  as.data.frame()
+rownames(mat) <- nmds_df$row_id
+# clean matrix
+# presence/absence
 mat <- (mat > 0) * 1
 # remove rare families
-mat <- mat[, colSums(mat) >= 5]
+mat <- mat[, colSums(mat) >= 10]
 # remove weak rows
-keep <- rowSums(mat) >= 5
+keep <- rowSums(mat) >= 3
 mat <- mat[keep, ]
+# match metadata AFTER filtering
 meta <- meta[keep, ]
+#-------------------------------------------------------------------------------
 # NMDS
 set.seed(123)
 nmds <- metaMDS(mat, distance = "bray", k = 2, trymax = 40)
+# Join
+scores_df <- as.data.frame(scores(nmds, display = "sites"))
+scores_df$row_id <- rownames(scores_df)
 
-scores_df <- as.data.frame(scores(nmds)) %>%
-  mutate(row_id = rownames(.)) %>%
+scores_df <- scores_df %>%
   left_join(meta, by = "row_id")
-#P1 RAW METHODS
+#-------------------------------------------------------------------------------
+# check
+head(scores_df)
+#-------------------------------------------------------------------------------
+# P RAW METHODS
+#-------------------------------------------------------------------------------
 top_methods <- scores_df %>%
-  count(method, sort = TRUE) %>%
-  slice_head(n = 15) %>%
-  pull(method)
+  count(gear_grouped, sort = TRUE) %>%
+  slice_head(n = 15) %>%   
+  pull(gear_grouped)
+
+top_methods
 
 scores_raw <- scores_df %>%
   mutate(
-    method_plot = ifelse(method %in% top_methods, method, "Other")
-  )
+    method_plot = ifelse(gear_grouped %in% top_methods,
+                         gear_grouped,
+                         "Other"))
 
 p_methods <- ggplot(scores_raw, aes(NMDS1, NMDS2, colour = method_plot)) +
   geom_point(size = 2.2, alpha = 0.7) +
-  stat_ellipse(aes(group = method_plot), linewidth = 0.6, alpha = 0.3) +
+   stat_ellipse(
+    aes(group = method_plot),
+    linewidth = 0.6,
+    alpha = 0.5,
+    na.rm = TRUE
+  )  +  
+  scale_colour_manual(values = c(
+    "Longline" = "#4f6d8a",
+    "Demersal trawl"  = "#1f3b5c",
+    "NMLS Angling"  = "#88a6b9",
+    "Pelagic seine"  = "#2a9d8f",
+    "CS (iNaturalist)"  = "#f4a261",
+    "Pole"  = "#6a994e",
+    "Shore angling"  = "#c08552",
+    "UVC"  = "#b56576",
+    "Museum"  = "#e76f51",
+    "Offshore trawl"  = "#a7c957",
+    "Inshore trawl"  = "#a8c0b3",
+    "Midwater trawl observer"  = "#6b4f4f",
+    "BRUV"  = "#c2a98a",
+    "Gillnet estuarine"  = "#7a6c8f",
+    "Seine net estuarine"  = "#c0b8cc"
+  )) +
   theme_classic(base_family = "Times") +
   labs(
     title = "NMDS – Assemblage structure by sampling method",
     colour = "Method"
   )
+#-------------------------------------------------------------------------------
+# P1 CLEAN METHODS
+#-------------------------------------------------------------------------------
+#-------------------------------------------------------------------------------
+scores_methods_clean <- scores_df %>%
+  filter(!gear_grouped %in% c("Museum", "Mixed gears", "Literature records")) %>%
+  mutate(
+    gear_clean = case_when(
+      gear_grouped %in% c("NMLS Angling","Boat angling","Shore angling", "Unspecified angling") ~ "Angling",
+      gear_grouped %in% c("BRUV","UVC","CS (iNaturalist)") ~ "Underwater visual",
+      gear_grouped %in% c("Chemical intertidal sampling") ~ "Chemical",
+      gear_grouped %in% c("Demersal trawl","Offshore trawl","Inshore trawl") ~ "Demersal trawl",
+      gear_grouped %in% c("Seine net estuarine","Gillnet estuarine","Plankton net") ~ "Inshore nets",
+      gear_grouped %in% c("Longline") ~ "Longline",
+      gear_grouped %in% c("Pelagic seine","Midwater trawl observer") ~ "Midwater trawl",
+      gear_grouped %in% c("Pole") ~ "Pole",
+      gear_grouped %in% c("Spear") ~ "Spear",
+      TRUE ~ NA_character_   
+    )
+  ) %>%
+  filter(!is.na(gear_clean))
 
-#P2 ECOLOGY
+p_methods_clean <- ggplot(scores_methods_clean, aes(NMDS1, NMDS2, colour = gear_clean)) +
+  geom_point(size = 2.2, alpha = 0.7) +
+  stat_ellipse(
+    aes(group = gear_clean),
+    linewidth = 0.6,
+    alpha = 0.3,
+    na.rm = TRUE
+  ) +
+  scale_colour_manual(values = c(
+    "Angling"             = "#88a6b9", #113
+    "Underwater visual"   = "#b56576", #101
+    "Chemical"            = "#7a6c8f", #only 3
+    "Demersal trawl"      = "#1f3b5c", #427
+    "Longline"            = "#f4a261", #311
+    "Inshore nets"        = "#e76f51", #18
+    "Midwater trawl"      = "#6b4f4f", #123
+    "Pole"                = "#6a994e", #20
+    "Spear"               = "#a7c957"  #only 3
+  )) +
+  theme_classic(base_family = "serif") +
+  labs(
+    title = "NMDS – Assemblage structure by sampling method",
+    colour = "Method"
+  )
+table(scores_methods_clean$gear_clean)
+#-------------------------------------------------------------------------------                 
+#-------------------------------------------------------------------------------
+# P2 ECOLOGY
+#-------------------------------------------------------------------------------
+#remove museum here
 scores_ecol <- scores_df %>%
+  filter(gear_grouped != "Museum") %>%
   mutate(
     method_ecol = case_when(
-      
-      # DEMERSAL
-      method %in% c("Demersal trawl","Offshore trawl","Inshore trawl") ~ "Demersal",
-      
-      # PELAGIC
-      method %in% c("Pole","Midwater trawl Observer","Longline","Pelagic seine") ~ "Pelagic",
-      
-      # COASTAL / NEARSHORE
-      method %in% c(
-        "Spear","BRUV","Seine net","Gillnet","Fykenet / trap",
-        "UVC","Citizen science (iNaturalist)",
-        "Boat angling","Shore angling","Unspecified angling",
-        "NMLS Angling data","Chemical"
-      ) ~ "Coastal",
-      
-      TRUE ~ NA_character_
+      gear_grouped %in% c("Demersal trawl","Offshore trawl","Inshore trawl") ~ "Demersal",
+      gear_grouped %in% c("Pole","Midwater trawl observer","Longline","Pelagic seine") ~ "Pelagic",
+      gear_grouped %in% c("NMLS Angling","BRUV","Unspecified angling","Boat angling","Plankton net","Spear","Literature records","Mixed gears") ~ "Nearshore",
+      gear_grouped %in% c("CS (iNaturalist)","Chemical intertidal sampling","Seine net estuarine", 
+                          "Gillnet estuarine","Shore angling", "UVC") ~ "Onshore",
+      TRUE ~ NA_character_   
     )
   ) %>%
   filter(!is.na(method_ecol))
 
+#"Museum"  removed as it does not fit into any one of the defined domains                 
 p_ecol <- ggplot(scores_ecol, aes(NMDS1, NMDS2, colour = method_ecol)) +
   geom_point(size = 2.5, alpha = 0.8) +
   stat_ellipse(aes(group = method_ecol), linewidth = 0.7, alpha = 0.3) +
   scale_colour_manual(values = c(
     "Demersal" = "#1b3b6f",
     "Pelagic"  = "#2a9d8f",
-    "Coastal"  = "#f4a261"
+    "Nearshore"  = "#a7c957",
+    "Onshore"  = "#6a994e"
   )) +
   theme_classic(base_family = "Times") +
   labs(
     title = "NMDS – Assemblage structure by ecological sampling domain",
     colour = "Domain"
   )
-
-#P3 ENVIRONMENTAL GRADIENT
+#-------------------------------------------------------------------------------
+# P3 ENVIRONMENTAL GRADIENT
+#-------------------------------------------------------------------------------
 meta_env <- dat %>%
-  group_by(grid_id, method) %>%
+  group_by(grid_id, gear_grouped) %>%
   summarise(
     mean_lon = mean(longitude, na.rm = TRUE),
     mean_depth = mean(depth, na.rm = TRUE),
@@ -105,10 +195,9 @@ meta_env <- dat %>%
   )
 
 scores_env <- scores_df %>%
-  left_join(meta_env, by = c("grid_id", "method"))
+  left_join(meta_env, by = c("grid_id", "gear_grouped"))
 
 p_env <- ggplot(scores_env, aes(NMDS1, NMDS2)) +
-  
   geom_point(
     aes(
       colour = mean_lon,
@@ -116,93 +205,126 @@ p_env <- ggplot(scores_env, aes(NMDS1, NMDS2)) +
     ),
     alpha = 0.6
   ) +
-  
   scale_colour_viridis_c(option = "G", end = 0.95) +
-  
   scale_size_continuous(range = c(1, 5)) +
-  
   theme_classic(base_family = "Times") +
-  
   labs(
     title = "NMDS – Environmental gradients in assemblage structure",
     colour = "Longitude (°E)",
     size = "Depth (m)"
   )
-
-#FINAL PLOTS
-p_methods  
+#-------------------------------------------------------------------------------
+# FINAL PLOTS
+#-------------------------------------------------------------------------------
+#p_methods 
+p_methods_clean
 p_ecol 
 p_env 
-
-# ============================================================
-###SAVE
-# ============================================================
-ggsave("p_methods.png", p_gears_sorted,
+#-------------------------------------------------------------------------------
+# SAVE
+#-------------------------------------------------------------------------------
+ggsave("figure22_p_methods.png", p_methods_clean,
        width = 7, height = 5, dpi = 600)
 
-ggsave("p_ecol.png", p_eco,
+ggsave("figure23_p_ecol.png", p_ecol,
        width = 7, height = 5.5, dpi = 600)
 
-ggsave("p_env.png", p_env,
+ggsave("figure24_p_env.png", p_env,
        width = 7, height = 5, dpi = 600)
-# ============================================================
-#TESTS
-# ============================================================
-# PERMANOVA
-adonis_method <- adonis2(
-  mat ~ method,
+#-------------------------------------------------------------------------------
+# TESTS
+#-------------------------------------------------------------------------------
+# RAW METHOD
+adonis_raw <- adonis2(
+  mat ~ gear_grouped,
   data = meta,
   method = "bray",
   permutations = 999
 )
 
-adonis_method
-
-# DISPERSION
-disp_method <- betadisper(
+adonis_raw
+#dispersion
+disp_raw <- betadisper(
   vegdist(mat, "bray"),
-  meta$method
+  meta$gear_grouped
 )
 
-anova(disp_method)
-permutest(disp_method)
+anova(disp_raw)
+permutest(disp_raw)
+#-------------------------------------------------------------------------------
+# CLEANED METHODS
+meta_clean <- scores_methods_clean %>%
+  select(row_id, gear_clean)
+# match to matrix
+meta_clean <- meta_clean %>%
+  filter(row_id %in% rownames(mat))
+mat_clean <- mat[meta_clean$row_id, ]
 
-# ============================================================
-#HEATMAP CODE 
-# ============================================================
-library(dplyr)
-library(tidyr)
-library(ggplot2)
-library(vegan)
-library(tibble)
-library(forcats)
-library(scales)
+adonis_clean <- adonis2(
+  mat_clean ~ gear_clean,
+  data = meta_clean,
+  method = "bray",
+  permutations = 999
+)
 
-dat_sf <- dat_all %>%
-  filter(!is.na(longitude), !is.na(latitude)) %>%
-  mutate(
-    lon_orig = longitude,
-    lat_orig = latitude
-  ) %>%
-  st_as_sf(coords = c("longitude", "latitude"), crs = 4326)
+adonis_clean
 
-dat <- final_dat %>%
-  st_drop_geometry() %>%
-  mutate(
-    longitude = lon_orig,
-    latitude  = lat_orig
-  )
+#dispersion
+disp_clean <- betadisper(
+  vegdist(mat_clean, "bray"),
+  meta_clean$gear_clean
+)
 
-dat %>%
-  summarise(
-    min_lon = min(longitude, na.rm = TRUE),
-    max_lon = max(longitude, na.rm = TRUE),
-    n_unique = n_distinct(floor(longitude))
-  )
+anova(disp_clean)
+permutest(disp_clean)
+#-------------------------------------------------------------------------------
+# ECOLOGICAL DOMAIN
+meta_ecol <- scores_ecol %>%
+  select(row_id, method_ecol) %>%
+  filter(row_id %in% rownames(mat))
 
+mat_ecol <- mat[meta_ecol$row_id, ]
+
+adonis_ecol <- adonis2(
+  mat_ecol ~ method_ecol,
+  data = meta_ecol,
+  method = "bray",
+  permutations = 999
+)
+
+adonis_ecol
+
+disp_ecol <- betadisper(
+  vegdist(mat_ecol, "bray"),
+  meta_ecol$method_ecol
+)
+
+anova(disp_ecol)
+permutest(disp_ecol)
+#-------------------------------------------------------------------------------
+# ENVIRONMENTAL GRADIENT (LONGITUDE VS DEPTH)
+#continuous so not in groups must do permanova and no
+meta_env_test <- scores_env %>%
+  select(row_id, mean_lon, mean_depth) %>%
+  filter(row_id %in% rownames(mat))
+
+mat_env <- mat[meta_env_test$row_id, ]
+
+adonis_env <- adonis2(
+  mat_env ~ mean_lon * mean_depth,
+  data = meta_env_test,
+  method = "bray",
+  permutations = 999
+)
+
+adonis_env
+#-------------------------------------------------------------------------------
+#-------------------------------------------------------------------------------
+# HEATMAP 
+#-------------------------------------------------------------------------------
 true_mono_fams <- c("Xiphiidae", "Rachycentridae")
 
-heat_dat <- dat %>%
+heat_dat <- final_dat %>%
   filter(
     !is.na(longitude),
     !is.na(family),
@@ -224,20 +346,20 @@ heat_mat <- heat_tab %>%
     values_fill = 0
   ) %>%
   mutate(total = rowSums(across(-family))) %>%
-  filter(total >= 20) %>% #can change this here keeps total of at least 20 across all bins
+  filter(total >= 20) %>% # can change this here keeps total of at least 20 across all bins
   select(-total)
 
 mat <- heat_mat %>%
   tibble::column_to_rownames("family") %>%
   as.matrix()
 
-#scale each family by own max (1 = peak bin, 0.5 half peak, 0 absent)
+# scale each family by own max (1 = peak bin, 0.5 half peak, 0 absent)
 mat_scaled <- mat / apply(mat, 1, max)
 
 dist_fam <- vegdist(mat_scaled, method = "bray")
 hc <- hclust(dist_fam, method = "average")
 
-#order families
+# order families
 family_order <- rownames(mat_scaled)[hc$order]
 
 # convert back to long format
@@ -253,12 +375,12 @@ heat_long <- as.data.frame(mat_scaled) %>%
     family = factor(family, levels = family_order)
   ) %>%
   filter(longitude >= 10, longitude <= 35) 
-#%>%
+# %>%
 # group_by(longitude) %>%
-#  filter(sum(value_scaled) > 0) %>%
+# filter(sum(value_scaled) > 0) %>%
 # ungroup()
 
-# optional: order families by centroid while keeping clustered order available
+# order families by centroid while keeping clustered order available
 family_centroid <- heat_long %>%
   group_by(family) %>%
   summarise(
@@ -276,7 +398,7 @@ family_order_centroid <- family_centroid %>%
 heat_long <- heat_long %>%
   mutate(family = factor(family, levels = family_order_centroid))
 
-# split into two balanced family groups
+# split into two groups
 families_in_order <- family_order
 n_fam <- length(families_in_order)
 
@@ -292,7 +414,7 @@ dat_1 <- heat_long %>%
 dat_2 <- heat_long %>%
   filter(as.character(family) %in% fam_group2) %>%
   mutate(family = factor(as.character(family), levels = fam_group2))
-
+#-------------------------------------------------------------------------------
 plot_family_heat <- function(dat, plot_title = NULL, plot_subtitle = NULL) {
   ggplot(dat, aes(x = longitude, y = family, fill = value_scaled)) +
     geom_tile(width = 1) +
@@ -339,7 +461,7 @@ plot_family_heat <- function(dat, plot_title = NULL, plot_subtitle = NULL) {
       plot.margin = margin(t = 20, r = 10, b = 10, l = 10)
     )
 }
-
+#-------------------------------------------------------------------------------
 p_heat_1 <- plot_family_heat(
   dat_1,
   plot_subtitle = paste0("(n = ", length(fam_group1), " families)")
@@ -349,34 +471,31 @@ p_heat_2 <- plot_family_heat(
   dat_2,
   plot_subtitle = paste0("(n = ", length(fam_group2), " families)")
 )
-
+#-------------------------------------------------------------------------------
 dat_1
 dat_2
+#-------------------------------------------------------------------------------
 p_heat_1
 p_heat_2
-
+#-------------------------------------------------------------------------------
 ggsave(
-  "family_heatmap_1.pdf",
+  "figure25_family_heatmap_1.pdf",
   p_heat_1,
   width = 7.5,
   height = 10,
-  units = "in"
-)
-
+  units = "in")
+#-------------------------------------------------------------------------------
 ggsave(
-  "family_heatmap_2.pdf",
+  "figure25_family_heatmap_2.pdf",
   p_heat_2,
   width = 7.5,
   height = 10,
-  units = "in"
-)
-
-# ============================================================
+  units = "in")
+#-------------------------------------------------------------------------------
 #SINGLE SECTOR
-# ============================================================
-#firstly for this;
-# I want to be able to list the families with the highest relative occurrence across all coasts 
-# and, importantly, identify which ones occur only in one of the sectors
+#-------------------------------------------------------------------------------
+# list the families with the highest relative occurrence across all coasts 
+# and, identify which ones occur only in one of the sectors
 heat_long2 <- heat_long %>%
   mutate(
     coast = case_when(
@@ -405,7 +524,6 @@ family_overall
 family_overall %>%
   slice_head(n = 20)
 
-
 top10_by_sector <- heat_long2 %>%
   group_by(coast, family) %>%
   summarise(
@@ -414,7 +532,6 @@ top10_by_sector <- heat_long2 %>%
   ) %>%
   group_by(coast) %>%
   slice_max(total_relative, n = 10, with_ties = FALSE)
-
 
 fam_raw_sector <- dat %>%
   filter(!is.na(longitude), !is.na(family), family != "") %>%
@@ -446,21 +563,13 @@ fam_raw_single_clean
 
 table(fam_raw_single_clean$coast)
 # E  S  W 
-# 27  1  4 
-
-# ============================================================
+# 31  1  3 
+#-------------------------------------------------------------------------------
 #TURNOVER PLOT
-# ============================================================
+#-------------------------------------------------------------------------------
 # map the assemblage turnover intensity along the South African coast, 
-library(dplyr)
-library(tidyr)
-library(vegan)
-library(ggplot2)
-install.packages("zoo")
-library(zoo)
-
 # Build longitude-bin x family table from original data
-turnover_tab <- dat_all %>%
+turnover_tab <- dat_all %>% #using dat_all for this because final_dat is cut off past 14, pattern is the same
   filter(
     !is.na(longitude),
     !is.na(family),
@@ -468,13 +577,13 @@ turnover_tab <- dat_all %>%
     family != ""
   ) %>%
   mutate(
-    lon_bin = floor(longitude)   # 1-degree bins to match your final heatmap
+    lon_bin = floor(longitude)   # 1-degree bins 
   ) %>%
-  filter(lon_bin >= 10, lon_bin <= 35) %>%
+  filter(lon_bin >= 5, lon_bin <= 35) %>%
   distinct(lon_bin, family, species) %>%
   count(lon_bin, family, name = "value")
 
-# 2. Wide matrix: rows = longitude bins, cols = families
+# Wide matrix: rows = longitude bins, cols = families
 turnover_mat <- turnover_tab %>%
   pivot_wider(
     names_from = family,
@@ -483,15 +592,15 @@ turnover_mat <- turnover_tab %>%
   ) %>%
   arrange(lon_bin)
 
-# 3. Keep bin labels
+#Keep bin labels
 lon_bins <- turnover_mat$lon_bin
 
-# 4. Numeric matrix for dissimilarity
+# Numeric matrix for dissimilarity
 turn_mat <- turnover_mat %>%
   select(-lon_bin) %>%
   as.matrix()
 
-# 5. Bray-Curtis turnover between adjacent bins
+# Bray-Curtis turnover between adjacent bins
 turnover_df <- data.frame(
   lon_bin = lon_bins[-1],
   turnover = sapply(2:nrow(turn_mat), function(i) {
@@ -499,17 +608,18 @@ turnover_df <- data.frame(
   })
 )
 
-# 6. Optional smoothing
+# Optional smoothing
 turnover_df <- turnover_df %>%
   mutate(
     turnover_smooth = zoo::rollmean(turnover, k = 3, fill = NA, align = "center")
   )
-
-# 7. Plot
+#-------------------------------------------------------------------------------
+# PLOT
+#-------------------------------------------------------------------------------
 p_turnover <- ggplot(turnover_df, aes(x = lon_bin, y = turnover)) +
   geom_line(linewidth = 0.7, alpha = 0.5) +
-  geom_point(size = 1.8, alpha = 0.7) +
-  geom_line(aes(y = turnover_smooth), linewidth = 1) +
+  geom_point(size = 1.2, alpha = 0.7) +
+  geom_line(aes(y = turnover_smooth), linewidth = 1, colour = 'red') +
   geom_vline(
     xintercept = c(20, 27),
     linetype = "dashed",
@@ -524,19 +634,18 @@ p_turnover <- ggplot(turnover_df, aes(x = lon_bin, y = turnover)) +
     title = "Assemblage turnover intensity along the South African coast",
     subtitle = "Bray–Curtis dissimilarity between adjacent 1° longitude bins",
     x = "Longitude (°E)",
-    y = "Turnover intensity"
+    y = "Bray Curtis dissimilarity"
   ) +
   theme_classic(base_family = "serif", base_size = 11)
-
+#-------------------------------------------------------------------------------
 p_turnover
-
+#-------------------------------------------------------------------------------
 ggsave(
-  "p_turnover.png",
+  "figure26_p_turnover.png",
   p_turnover,
   width = 10,
   height = 5,
   units = "in"
 )
-
-
-
+#-------------------------------------------------------------------------------
+#-------------------------------------------------------------------------------

@@ -1,5 +1,5 @@
 #-------------------------------------------------------------------------------
-# TAXONOMIC COMPOSITION AND HEIRARCHICAL ORGANISATION 
+# 6. TAXONOMIC COMPOSITION AND HEIRARCHICAL ORGANISATION 
 #-------------------------------------------------------------------------------
 install.packages("plotly")
 install.packages("ggdendro")
