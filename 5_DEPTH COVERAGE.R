@@ -176,14 +176,8 @@ p_depth_violin_source <- ggplot(dat_depth, aes(x = source, y = depth_pos)) +
 
 p_depth_violin_source
 
-ggsave(
-  "figure12_depth_distribution_sources.pdf",
-  plot = p_depth_violin_source,
-  width = 200,
-  height = 130,
-  units = "mm",
-  dpi = 600
-)
+ggsave("figure12_depth_distribution_sources.png", p_depth_violin_source,
+       width = 8, height = 6, dpi = 600)
 #-------------------------------------------------------------------------------
 #-------------------------------------------------------------------------------
 #BY METHOD
@@ -270,14 +264,8 @@ p_depth_violin_method <- ggplot(depth_dat, aes(x = gear_label, y = depth_pos)) +
 
 p_depth_violin_method
 
-ggsave(
-  filename = "figure13_depth_distribution_method.tiff",
-  plot = p_depth_violin_method,
-  width = 8,
-  height = 5,
-  dpi = 600,
-  compression = "lzw"
-)
+ggsave("figure13_depth_distribution_method.png", p_depth_violin_method,
+       width = 8, height = 6, dpi = 600)
 #-------------------------------------------------------------------------------
 #TESTS (KW and episolon squared eff sizes)
 #-------------------------------------------------------------------------------

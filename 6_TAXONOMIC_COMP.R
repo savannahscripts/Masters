@@ -5,11 +5,13 @@ install.packages("plotly")
 install.packages("ggdendro")
 install.packages("treemap")
 install.packages("gt")
+install.packages("processx")
 library(treemap)
 library(dplyr)
 library(plotly)
 library(patchwork)
 library(gt)
+library(htmlwidgets)
 #-------------------------------------------------------------------------------
 #RESOLUTION SUMMARY
 #-------------------------------------------------------------------------------
@@ -125,19 +127,20 @@ p_tax_faceted <- ggplot(
 
 p_tax_faceted
 
-ggsave(
-  "figure14_taxonomic_resolution_faceted.pdf",
-  plot = p_tax_faceted,
-  width = 200,
-  height = 130,
-  units = "mm",
-  dpi = 600
-)
+ggsave("figure14_p_tax_faceted.png", p_tax_faceted,
+       width = 8, height = 6, dpi = 600)
 #-------------------------------------------------------------------------------
 #HIERARCHICAL
 #-------------------------------------------------------------------------------
-total_richness <- n_distinct(dat$species)
-total_richness #1945 species
+total_richness_s <- n_distinct(dat$species)
+total_richness_f <- n_distinct(dat$genus)
+total_richness_g <- n_distinct(dat$family)
+total_richness_o <- n_distinct(dat$order)
+
+total_richness_s #1945 species
+total_richness_f #866
+total_richness_g #237
+total_richness_o #31
 #-------------------------------------------------------------------------------
 #Structure across order
 #order summary 
@@ -184,6 +187,18 @@ print(order_summary, n = Inf)
 # Albuliformes               1         2
 # Elopiformes                2         2
 # Polymixiiformes            1         1
+
+fam_summary <- dat %>%
+  distinct(family, species) %>%
+  group_by(family) %>%
+  summarise(
+    n_species  = n_distinct(species),
+    .groups = "drop"
+  ) %>%
+  arrange(desc(n_species))
+print(fam_summary, n = Inf)
+
+#44 families have >10 species = 81.4%
 
 #-------------------------------------------------------------------------------
 #SUNBURST PLOT
@@ -241,22 +256,15 @@ p_sunburst <- plot_ly(
 
 p_sunburst
 
-ggsave(
-  "figure15_sunburst.pdf",
-  plot = p_sunburst,
-  width = 200,
-  height = 130,
-  units = "mm",
-  dpi = 600
-)
+save_image(p_sunburst, file = "figure15_sunburst.png")
 
-library(htmlwidgets)
-
-saveWidget(
+htmlwidgets::saveWidget(
   p_sunburst,
   "figure15_sunburst.html",
-  selfcontained = TRUE
+  selfcontained = FALSE
 )
+
+getwd()
 
 # upload html to github pages
 #“An interactive version of this figure is available at: [link]” 
