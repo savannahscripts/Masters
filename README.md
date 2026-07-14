@@ -8,6 +8,8 @@ This repository contains R scripts used to integrate, clean, and analyse multipl
 
 The workflow progresses from data integration and standardisation through to coverage analyses, biodiversity patterns, and assemblage structure.
 
+The final species inventory is included in the **docs** folder
+
 ---
 
 ## 🔁 Workflow Structure  
