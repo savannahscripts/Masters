@@ -1,4 +1,4 @@
-# Masters  
+# 🌊 Masters 🌊
 **Scripts for Data Integration and Analysis of Marine Fish Occurrence Data (South Africa EEZ)**  
 
 ---
